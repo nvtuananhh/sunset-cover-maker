@@ -1,86 +1,165 @@
-// caption.js — bold poster caption: condensed title with outline + shadow,
-// subtitle and tag line, drawn on the cover canvas. Position, size, letter
-// spacing and colour are all user-controlled from the editor.
+// app/js/caption.js — caption lettering: bold condensed title, subtitle and
+// tag line, drawn on the cover canvas with outline, shadow and an optional
+// gradient fill. Position is stored as a fraction of the canvas so the same
+// caption lands identically at every export size.
+export const CAPTION_COLORS = [
+  { name: 'Sunset White', fill: '#fff7ed', outline: '#1c0a1e', shadow: '#ff5e3a', gradient: null },
+  { name: 'Neon Pink', fill: '#ffd7f2', outline: '#2b0340', shadow: '#ff2fb3', gradient: ['#ffe9a8', '#ff5e8a'] },
+  { name: 'Gold Rush', fill: '#fff3c4', outline: '#241203', shadow: '#f4842b', gradient: ['#fff6c9', '#ffb347'] },
+  { name: 'Ocean Pop', fill: '#e8fbff', outline: '#04263a', shadow: '#22d3ee', gradient: ['#c9f6ff', '#4dd8ff'] },
+  { name: 'Bubblegum', fill: '#ffe3ee', outline: '#3d0a24', shadow: '#ff2f6d', gradient: ['#ffd1e3', '#ff7ab8'] },
+];
 
-export function drawCaption(ctx, caption, w, h) {
-  // Scale type by the cover's SHORTER side, so a 1920x1080 landscape cover
-  // keeps the same proportions as the square one (scaling by width alone
-  // blew the title off the bottom edge in landscape).
-  const unit = Math.min(w, h);
-  const titleSize = (caption.titleSize / 1080) * unit;
-  const spacingPx = (caption.spacing / 1080) * unit;
-  // Keep the whole caption block (title + subtitle bar + tag) on-canvas.
-  const blockBelow = titleSize * 0.62 + titleSize * 0.24 * 1.7 + titleSize * 0.35;
-  let cy = (caption.y / 100) * h;
-  cy = Math.min(cy, h - blockBelow - 12);
-  cy = Math.max(cy, titleSize * 0.6);
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  if ('letterSpacing' in ctx) ctx.letterSpacing = `${spacingPx}px`;
-  // Title with thick dark outline and drop shadow.
-  ctx.font = `${titleSize}px Anton, sans-serif`;
-  ctx.lineWidth = Math.max(3, titleSize * 0.09);
-  ctx.strokeStyle = 'rgba(20,4,24,0.95)';
-  ctx.lineJoin = 'round';
-  ctx.shadowColor = 'rgba(255,94,168,0.65)';
-  ctx.shadowBlur = titleSize * 0.22;
-  ctx.shadowOffsetY = titleSize * 0.04;
-  ctx.strokeText(caption.title.toUpperCase(), w / 2, cy);
-  ctx.shadowColor = 'transparent';
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = caption.color;
-  ctx.fillText(caption.title.toUpperCase(), w / 2, cy);
-  // Subtitle on a dark ribbon bar.
-  const subSize = titleSize * 0.24;
-  ctx.font = `700 ${subSize}px Inter, sans-serif`;
-  if ('letterSpacing' in ctx) ctx.letterSpacing = `${spacingPx * 1.6}px`;
-  const subText = caption.subtitle.toUpperCase();
-  const subW = ctx.measureText(subText).width + subSize * 1.6;
-  const subY = cy + titleSize * 0.62;
-  ctx.fillStyle = 'rgba(16,4,22,0.82)';
-  const barH = subSize * 1.7;
-  ctx.fillRect(w / 2 - subW / 2, subY - barH / 2, subW, barH);
-  ctx.fillStyle = '#ffd166';
-  ctx.fillText(subText, w / 2, subY + subSize * 0.05);
-  // Tag line, small and tracked out.
-  if (caption.tag.trim()) {
-    const tagSize = titleSize * 0.13;
-    ctx.font = `600 ${tagSize}px Inter, sans-serif`;
-    if ('letterSpacing' in ctx) ctx.letterSpacing = `${spacingPx * 1.2}px`;
-    ctx.fillStyle = 'rgba(255,255,255,0.92)';
-    ctx.shadowColor = 'rgba(0,0,0,0.8)';
-    ctx.shadowBlur = tagSize * 0.4;
-    ctx.fillText(caption.tag.toUpperCase(), w / 2, subY + barH * 0.9 + tagSize);
-  }
-  ctx.restore();
+/** A fresh caption: title, subtitle and tag line, centred near the bottom. */
+export function defaultCaption() {
+  return {
+    title: 'NEON SHORE',
+    subtitle: 'Vice City nights, your story',
+    tagline: 'SUNSET COVER MAKER',
+    color: 0,
+    size: 1,
+    spacing: 0.04,
+    x: 0.5,
+    y: 0.88,
+    align: 'center',
+  };
 }
 
-export function bindCaptionControls(state, render) {
-  const byId = (id) => document.getElementById(id);
-  byId('titleInput').addEventListener('input', (e) => { state.caption.title = e.target.value; render(); });
-  byId('subtitleInput').addEventListener('input', (e) => { state.caption.subtitle = e.target.value; render(); });
-  byId('tagInput').addEventListener('input', (e) => { state.caption.tag = e.target.value; render(); });
-  byId('titleSize').addEventListener('input', (e) => {
-    state.caption.titleSize = Number(e.target.value);
-    byId('titleSizeVal').textContent = e.target.value;
-    render();
-  });
-  byId('spacing').addEventListener('input', (e) => {
-    state.caption.spacing = Number(e.target.value);
-    byId('spacingVal').textContent = e.target.value;
-    render();
-  });
-  byId('captionY').addEventListener('input', (e) => {
-    state.caption.y = Number(e.target.value);
-    byId('captionYVal').textContent = `${e.target.value}%`;
-    render();
-  });
-  document.getElementById('captionColors').addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-color]');
-    if (!btn) return;
-    state.caption.color = btn.dataset.color;
-    document.querySelectorAll('#captionColors button').forEach((b) => b.classList.toggle('active', b === btn));
-    render();
-  });
+/** The title font size in px: scales with the shorter canvas side. */
+export function titleSize(W, H, caption) {
+  return Math.round(Math.min(W, H) * 0.105 * caption.size);
+}
+
+/**
+ * Measure the caption block (title + subtitle + tagline) in canvas space.
+ * Returns {x, y, w, h} of the block's bounding box, clamped inside the
+ * canvas with a small margin — the caption can never run off the cover.
+ */
+export function measureCaptionBlock(ctx, W, H, caption) {
+  const size = titleSize(W, H, caption);
+  const subSize = Math.max(10, Math.round(size * 0.26));
+  const tagSize = Math.max(9, Math.round(size * 0.17));
+  const gap1 = size * 0.18;
+  const gap2 = size * 0.22;
+  ctx.save();
+  ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
+  try {
+    ctx.letterSpacing = `${size * caption.spacing}px`;
+  } catch (_) {}
+  const titleW = ctx.measureText(caption.title.toUpperCase()).width;
+  ctx.font = `600 ${subSize}px Inter, system-ui, sans-serif`;
+  const subW = caption.subtitle ? ctx.measureText(caption.subtitle).width : 0;
+  ctx.font = `700 ${tagSize}px Inter, system-ui, sans-serif`;
+  const tagW = caption.tagline ? ctx.measureText(spacedText(caption.tagline.toUpperCase())).width : 0;
+  ctx.restore();
+  const w = Math.max(titleW, subW, tagW);
+  const h = size + gap1 + subSize + gap2 + tagSize;
+  const margin = Math.min(W, H) * 0.03;
+  const cx = caption.x * W;
+  const cy = caption.y * H;
+  const x = Math.min(Math.max(cx - w / 2, margin), W - margin - w);
+  const y = Math.min(Math.max(cy - h, margin), H - margin - h);
+  return { x, y, w, h, size, subSize, tagSize, gap1, gap2 };
+}
+
+/** Insert hair spaces between letters for a tracked-out tag line. */
+function spacedText(text) {
+  return text.split('').join('  ');
+}
+
+/** Fill text with a solid colour or a vertical gradient across the block. */
+function fillTitleText(ctx, text, x, y, preset, blockW) {
+  if (preset.gradient) {
+    const grad = ctx.createLinearGradient(x, y - blockW * 0.1, x, y + blockW * 0.08);
+    grad.addColorStop(0, preset.gradient[0]);
+    grad.addColorStop(1, preset.gradient[1]);
+    ctx.fillStyle = grad;
+  } else {
+    ctx.fillStyle = preset.fill;
+  }
+  ctx.fillText(text, x, y);
+}
+
+/**
+ * Draw the caption. For the full-bleed layout a dark poster bar sits behind
+ * the block so white lettering stays readable over any photo.
+ */
+export function drawCaption(ctx, W, H, caption, layoutId) {
+  const preset = CAPTION_COLORS[caption.color] || CAPTION_COLORS[0];
+  const block = measureCaptionBlock(ctx, W, H, caption);
+  const cx = caption.x * W;
+  const { size, subSize, tagSize, gap1, gap2 } = block;
+  const margin = Math.min(W, H) * 0.03;
+
+  if (layoutId === 'fullbleed') {
+    ctx.save();
+    const barH = block.h + size * 0.55;
+    const barY = Math.min(block.y - size * 0.32, H - barH - margin * 0.4);
+    const grad = ctx.createLinearGradient(0, barY, 0, barY + barH);
+    grad.addColorStop(0, 'rgba(16,4,22,0)');
+    grad.addColorStop(0.35, 'rgba(16,4,22,0.72)');
+    grad.addColorStop(1, 'rgba(16,4,22,0.88)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, barY, W, barH);
+    ctx.fillStyle = 'rgba(255,94,58,0.9)';
+    ctx.fillRect(0, barY, W, Math.max(3, size * 0.045));
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  let y = block.y + size;
+
+  // Title: shadow, thick outline, gradient/solid fill.
+  ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
+  try {
+    ctx.letterSpacing = `${size * caption.spacing}px`;
+  } catch (_) {}
+  const title = caption.title.toUpperCase();
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  ctx.strokeStyle = preset.outline;
+  ctx.lineWidth = Math.max(2, size * 0.14);
+  ctx.fillStyle = preset.shadow;
+  ctx.fillText(title, cx + size * 0.045, y + size * 0.05);
+  ctx.strokeText(title, cx, y);
+  fillTitleText(ctx, title, cx, y, preset, block.w);
+
+  // Subtitle: clean sans, soft dark shadow.
+  if (caption.subtitle) {
+    y += gap1 + subSize;
+    ctx.font = `600 ${subSize}px Inter, system-ui, sans-serif`;
+    try {
+      ctx.letterSpacing = '0px';
+    } catch (_) {}
+    ctx.fillStyle = 'rgba(12,2,16,0.75)';
+    ctx.fillText(caption.subtitle, cx + 2, y + 2);
+    ctx.fillStyle = '#fff7ed';
+    ctx.fillText(caption.subtitle, cx, y);
+  }
+
+  // Tag line: tracked-out caps with rules on either side.
+  if (caption.tagline) {
+    y += gap2 + tagSize;
+    const tag = spacedText(caption.tagline.toUpperCase());
+    ctx.font = `700 ${tagSize}px Inter, system-ui, sans-serif`;
+    try {
+      ctx.letterSpacing = `${tagSize * 0.32}px`;
+    } catch (_) {}
+    const tagW = ctx.measureText(tag).width;
+    const ruleY = y - tagSize * 0.32;
+    const ruleGap = tagSize * 0.9;
+    ctx.strokeStyle = 'rgba(255,247,237,0.85)';
+    ctx.lineWidth = Math.max(1.5, tagSize * 0.09);
+    ctx.beginPath();
+    ctx.moveTo(cx - tagW / 2 - ruleGap - tagSize * 2.4, ruleY);
+    ctx.lineTo(cx - tagW / 2 - ruleGap, ruleY);
+    ctx.moveTo(cx + tagW / 2 + ruleGap, ruleY);
+    ctx.lineTo(cx + tagW / 2 + ruleGap + tagSize * 2.4, ruleY);
+    ctx.stroke();
+    ctx.fillStyle = preset.gradient ? preset.gradient[0] : preset.fill;
+    ctx.fillText(tag, cx, y);
+  }
+  ctx.restore();
 }

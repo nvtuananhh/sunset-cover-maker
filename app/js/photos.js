@@ -1,29 +1,48 @@
-// photos.js — photo uploads from the user's machine (FileReader, local only)
-// and the thumbnail strip. Photos are never sent anywhere.
+// app/js/photos.js — photos from the user's machine, read locally only.
+// Files are read with FileReader into data URLs and decoded into Images;
+// nothing is ever uploaded anywhere.
+let nextId = 1;
 
-export function readPhotoFiles(files) {
-  const images = [...files].filter((f) => f.type.startsWith('image/'));
-  return Promise.all(images.map((file) => new Promise((resolve, reject) => {
+/** Load one File into a photo record {id, name, img, src}. */
+export function loadPhotoFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith('image/')) {
+      reject(new Error('Not an image file'));
+      return;
+    }
     const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
     reader.onload = () => {
       const img = new Image();
-      img.onload = () => resolve({ name: file.name, src: reader.result, img });
-      img.onerror = () => reject(new Error(`Could not read ${file.name}`));
-      img.src = reader.result;
+      img.onload = () => {
+        resolve({ id: `photo-${nextId++}`, name: file.name, img, src: String(reader.result) });
+      };
+      img.onerror = () => reject(new Error(`Could not decode ${file.name}`));
+      img.src = String(reader.result);
     };
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
     reader.readAsDataURL(file);
-  })));
+  });
 }
 
-export function renderThumbs(container, photos, selectedIndex, onSelect) {
-  container.innerHTML = '';
-  photos.forEach((photo, i) => {
-    const thumb = document.createElement('img');
-    thumb.src = photo.src;
-    thumb.alt = photo.name;
-    thumb.classList.toggle('selected', i === selectedIndex);
-    thumb.addEventListener('click', () => onSelect(i));
-    container.appendChild(thumb);
+/** Load an image from a local app URL (used for the built-in samples). */
+export function loadPhotoUrl(url, name) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ id: `photo-${nextId++}`, name, img, src: url });
+    img.onerror = () => reject(new Error(`Could not load ${url}`));
+    img.src = url;
   });
+}
+
+/** Load several files, skipping the ones that fail, in file order. */
+export async function loadPhotoFiles(files) {
+  const loaded = [];
+  for (const file of files) {
+    try {
+      loaded.push(await loadPhotoFile(file));
+    } catch (err) {
+      console.warn('[photos]', err.message);
+    }
+  }
+  return loaded;
 }

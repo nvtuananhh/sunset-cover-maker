@@ -4,13 +4,15 @@
 [![rank](https://make.fun/badge/gta6-cover-art-01/nvtuananhh/sunset-cover-maker/rank.svg)](https://make.fun/bounty/gta6-cover-art-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 [![reward](https://make.fun/badge/gta6-cover-art-01/nvtuananhh/sunset-cover-maker/reward.svg)](https://make.fun/bounty/gta6-cover-art-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 
-Sunset Cover Maker turns your photos and a caption into GTA 6-poster-style multi-panel cover art with sunset and neon grades, exported as a PNG.
+Sunset Cover Maker turns your photos and a caption into GTA 6-style multi-panel cover art — Vice City sunset and neon grades, three layouts, exported as a PNG in 1080×1080, 1080×1350 or 1920×1080, fully offline in the browser.
 
 ## Run it
 
 ```sh
 python3 -m http.server 8080 --directory app
 ```
+
+Then open http://localhost:8080 — upload a photo (or use the built-in samples), pick a layout and grade, write your caption, and download the PNG.
 
 ---
 

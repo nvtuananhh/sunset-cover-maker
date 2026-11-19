@@ -1,97 +1,112 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sunset Cover Maker — GTA-style poster covers from your photos</title>
+<title>Sunset Cover Maker — GTA-style multi-panel cover art</title>
+<meta name="description" content="Turn your photos and a caption into GTA 6-style multi-panel cover art — Vice City sunset and neon grades, three layouts, exported as a PNG. Works offline; photos never leave your machine.">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">SC</span><span class="brand-name">Sunset Cover Maker</span></div>
-  <div class="steps" id="steps"><span class="step done" data-step="1">1 · Upload</span><span class="step" data-step="2">2 · Arrange + caption</span><span class="step" data-step="3">3 · Export</span></div>
-  <div class="top-size" id="topSize">1080 × 1080</div>
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">☀</span>
+    <div>
+      <h1>Sunset Cover Maker</h1>
+      <p class="tagline">Your photos → GTA-style poster cover art</p>
+    </div>
+  </div>
+  <div class="steps" id="stepLine" aria-live="polite">1 Upload · 2 Arrange + caption · 3 Export</div>
 </header>
-<main class="layout">
-  <aside class="panel left" aria-label="Photos, templates and grades">
-    <section>
-      <h2>1 · Photos</h2>
-      <label class="upload-btn" for="fileInput">+ Add photos from your machine</label>
-      <input type="file" id="fileInput" accept="image/*" multiple hidden>
-      <p class="hint">Photos stay on your machine — never uploaded.</p>
-      <div class="thumbs" id="thumbs"></div>
-      <div class="sample-row">
-        <button type="button" id="sampleBoulevard">Sample · Boulevard</button>
-        <button type="button" id="samplePier">Sample · Pier</button>
+
+<main class="editor">
+  <!-- Left: photos, templates, grades -->
+  <section class="col col-left" aria-label="Photos, templates and grades">
+    <h2><span class="step-num">1</span> Photos</h2>
+    <div class="row">
+      <button id="uploadBtn" class="btn primary" type="button">Upload photos</button>
+      <button id="loadSamplesBtn" class="btn" type="button">Load samples</button>
+    </div>
+    <input id="uploadInput" type="file" accept="image/*" multiple hidden>
+    <div id="photoList" class="photo-list"></div>
+    <p class="muted">Photos are read on your machine and never uploaded. Click a thumbnail to put it in the selected panel.</p>
+
+    <h2><span class="step-num">2</span> Layout</h2>
+    <div id="templateList" class="choice-list"></div>
+
+    <h2>Colour grade</h2>
+    <div id="gradeList" class="choice-list"></div>
+  </section>
+
+  <!-- Centre: live preview + panel crop -->
+  <section class="col col-center" aria-label="Live preview">
+    <div class="preview-head">
+      <h2>Live preview</h2>
+      <span id="sizeReadout" class="size-readout">1920 × 1080</span>
+    </div>
+    <div class="preview-wrap">
+      <canvas id="preview" width="900" height="506" aria-label="Cover preview"></canvas>
+    </div>
+    <p id="previewHint" class="muted">Drag a photo to pan it · scroll to zoom · double-click a panel to reset its crop · drag the caption to move it.</p>
+
+    <div class="panel-box">
+      <h3 id="panelLabel">Panel 1 of 3</h3>
+      <label class="field">Photo in this panel
+        <select id="panelPhoto"></select>
+      </label>
+      <div class="row">
+        <button id="fillAllBtn" class="btn" type="button">Fill all panels with this photo</button>
+        <button id="resetPanelBtn" class="btn" type="button">Reset crop</button>
       </div>
-    </section>
-    <section>
-      <h2>Templates</h2>
-      <div class="btn-grid" id="templateBtns">
-        <button type="button" data-template="hero" class="active">Hero + 2 panels</button>
-        <button type="button" data-template="mosaic">4-panel mosaic</button>
-        <button type="button" data-template="fullbleed">Full-bleed poster</button>
-      </div>
-    </section>
-    <section>
-      <h2>Colour grade</h2>
-      <div class="btn-grid" id="gradeBtns">
-        <button type="button" data-grade="sunset" class="active">Vice Sunset</button>
-        <button type="button" data-grade="neon">Neon Nights</button>
-        <button type="button" data-grade="golden">Golden Hour</button>
-        <button type="button" data-grade="noir">Noir</button>
-      </div>
-      <label class="check"><input type="checkbox" id="halftoneToggle"> Halftone dots</label>
-      <label class="check"><input type="checkbox" id="grainToggle" checked> Film grain</label>
-    </section>
-  </aside>
-  <section class="stage" aria-label="Live preview">
-    <div class="canvas-wrap"><canvas id="preview" width="1080" height="1080"></canvas></div>
-    <p class="stage-note" id="stageNote">Live preview — drag a panel to pan its photo, use the sliders to zoom and rotate.</p>
-    <div class="size-row" id="sizeRow">
-      <button type="button" data-size="1080x1080" class="active">1080 × 1080</button>
-      <button type="button" data-size="1080x1350">1080 × 1350</button>
-      <button type="button" data-size="1920x1080">1920 × 1080</button>
+      <label class="field">Zoom <span id="zoomVal" class="val">1.00×</span>
+        <input id="zoomRange" type="range" min="1" max="3" step="0.01" value="1">
+      </label>
+      <label class="field">Rotate <span id="rotVal" class="val">0°</span>
+        <input id="rotRange" type="range" min="-15" max="15" step="1" value="0">
+      </label>
     </div>
   </section>
-  <aside class="panel right" aria-label="Caption and export">
-    <section>
-      <h2>2 · Caption</h2>
-      <label class="field">Title<input id="titleInput" type="text" value="VICE CITY" maxlength="24"></label>
-      <label class="field">Subtitle<input id="subtitleInput" type="text" value="SUNSET STORIES" maxlength="40"></label>
-      <label class="field">Tag line<input id="tagInput" type="text" value="A STORY IN EVERY FRAME" maxlength="48"></label>
-      <label class="field">Title size <span id="titleSizeVal">150</span><input id="titleSize" type="range" min="60" max="240" value="150"></label>
-      <label class="field">Letter spacing <span id="spacingVal">6</span><input id="spacing" type="range" min="0" max="24" value="6"></label>
-      <label class="field">Caption height <span id="captionYVal">82%</span><input id="captionY" type="range" min="45" max="95" value="82"></label>
-      <div class="swatches" id="captionColors">
-        <button type="button" data-color="#ffffff" class="active" style="background:#ffffff" aria-label="White"></button>
-        <button type="button" data-color="#ffd166" style="background:#ffd166" aria-label="Gold"></button>
-        <button type="button" data-color="#ff5ea8" style="background:#ff5ea8" aria-label="Pink"></button>
-        <button type="button" data-color="#37e6ff" style="background:#37e6ff" aria-label="Cyan"></button>
-        <button type="button" data-color="#111111" style="background:#111111" aria-label="Black"></button>
-      </div>
-    </section>
-    <section>
-      <h2>Panel photo</h2>
-      <p class="hint" id="panelHint">Click a panel in the preview to select it.</p>
-      <label class="field">Photo for this panel<select id="panelPhoto"></select></label>
-      <label class="field">Zoom <span id="zoomVal">1.00×</span><input id="zoom" type="range" min="0.6" max="3" step="0.05" value="1"></label>
-      <label class="field">Pan X <span id="panXVal">0</span><input id="panX" type="range" min="-200" max="200" value="0"></label>
-      <label class="field">Pan Y <span id="panYVal">0</span><input id="panY" type="range" min="-200" max="200" value="0"></label>
-      <label class="field">Rotate <span id="rotVal">0°</span><input id="rot" type="range" min="-15" max="15" value="0"></label>
-    </section>
-    <section>
-      <h2>3 · Export PNG</h2>
-      <div class="export-btns">
-        <button type="button" class="export" data-export="1080x1080">Download 1080 × 1080</button>
-        <button type="button" class="export" data-export="1080x1350">Download 1080 × 1350</button>
-        <button type="button" class="export" data-export="1920x1080">Download 1920 × 1080</button>
-      </div>
-      <p class="hint" id="exportStatus">Ready — one click downloads your cover.</p>
-    </section>
-  </aside>
+
+  <!-- Right: caption, effects, export -->
+  <section class="col col-right" aria-label="Caption and export">
+    <h2><span class="step-num">2</span> Caption</h2>
+    <label class="field">Title
+      <input id="titleInput" type="text" value="NEON SHORE" maxlength="24" autocomplete="off">
+    </label>
+    <label class="field">Subtitle
+      <input id="subtitleInput" type="text" value="Vice City nights, your story" maxlength="60" autocomplete="off">
+    </label>
+    <label class="field">Tag line
+      <input id="taglineInput" type="text" value="SUNSET COVER MAKER" maxlength="40" autocomplete="off">
+    </label>
+    <div class="field">Lettering colour
+      <div id="colorList" class="swatch-row"></div>
+    </div>
+    <label class="field">Title size <span id="capSizeVal" class="val">100%</span>
+      <input id="capSizeRange" type="range" min="0.6" max="1.5" step="0.05" value="1">
+    </label>
+    <label class="field">Letter spacing <span id="spacingVal" class="val">4%</span>
+      <input id="spacingRange" type="range" min="0" max="0.18" step="0.01" value="0.04">
+    </label>
+    <button id="resetCaptionBtn" class="btn" type="button">Reset caption</button>
+
+    <h2>Poster effects</h2>
+    <label class="check"><input id="fxGrain" type="checkbox" checked> Film grain</label>
+    <label class="check"><input id="fxHalftone" type="checkbox"> Halftone dots</label>
+    <label class="check"><input id="fxVignette" type="checkbox" checked> Vignette</label>
+
+    <h2><span class="step-num">3</span> Export</h2>
+    <div id="sizeList" class="choice-list"></div>
+    <button id="exportBtn" class="btn primary big" type="button">Download PNG</button>
+    <button id="exportAllBtn" class="btn" type="button">Download all 3 sizes</button>
+    <p id="exportStatus" class="muted" aria-live="polite">One click saves the cover as a PNG at the size above.</p>
+  </section>
 </main>
-<footer class="foot">Sunset Cover Maker — original poster art made on your machine. No Rockstar logo, artwork or font is used here.</footer>
+
+<footer class="foot">
+  <p>Original art, made on your machine: no Rockstar logo, artwork or font — lettering is Anton + Inter under the SIL Open Font License. Sample photos are drawn in code. Works fully offline.</p>
+</footer>
+
 <script type="module" src="js/editor.js"></script>
 </body>
 </html>
