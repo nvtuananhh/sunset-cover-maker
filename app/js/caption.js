@@ -3,12 +3,21 @@
 // spacing and colour are all user-controlled from the editor.
 
 export function drawCaption(ctx, caption, w, h) {
-  const cy = (caption.y / 100) * h;
-  const titleSize = (caption.titleSize / 1080) * w;
+  // Scale type by the cover's SHORTER side, so a 1920x1080 landscape cover
+  // keeps the same proportions as the square one (scaling by width alone
+  // blew the title off the bottom edge in landscape).
+  const unit = Math.min(w, h);
+  const titleSize = (caption.titleSize / 1080) * unit;
+  const spacingPx = (caption.spacing / 1080) * unit;
+  // Keep the whole caption block (title + subtitle bar + tag) on-canvas.
+  const blockBelow = titleSize * 0.62 + titleSize * 0.24 * 1.7 + titleSize * 0.35;
+  let cy = (caption.y / 100) * h;
+  cy = Math.min(cy, h - blockBelow - 12);
+  cy = Math.max(cy, titleSize * 0.6);
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  if ('letterSpacing' in ctx) ctx.letterSpacing = `${(caption.spacing / 1080) * w}px`;
+  if ('letterSpacing' in ctx) ctx.letterSpacing = `${spacingPx}px`;
   // Title with thick dark outline and drop shadow.
   ctx.font = `${titleSize}px Anton, sans-serif`;
   ctx.lineWidth = Math.max(3, titleSize * 0.09);
@@ -25,7 +34,7 @@ export function drawCaption(ctx, caption, w, h) {
   // Subtitle on a dark ribbon bar.
   const subSize = titleSize * 0.24;
   ctx.font = `700 ${subSize}px Inter, sans-serif`;
-  if ('letterSpacing' in ctx) ctx.letterSpacing = `${(caption.spacing / 1080) * w * 1.6}px`;
+  if ('letterSpacing' in ctx) ctx.letterSpacing = `${spacingPx * 1.6}px`;
   const subText = caption.subtitle.toUpperCase();
   const subW = ctx.measureText(subText).width + subSize * 1.6;
   const subY = cy + titleSize * 0.62;
@@ -38,7 +47,7 @@ export function drawCaption(ctx, caption, w, h) {
   if (caption.tag.trim()) {
     const tagSize = titleSize * 0.13;
     ctx.font = `600 ${tagSize}px Inter, sans-serif`;
-    if ('letterSpacing' in ctx) ctx.letterSpacing = `${(caption.spacing / 1080) * w * 1.2}px`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${spacingPx * 1.2}px`;
     ctx.fillStyle = 'rgba(255,255,255,0.92)';
     ctx.shadowColor = 'rgba(0,0,0,0.8)';
     ctx.shadowBlur = tagSize * 0.4;
