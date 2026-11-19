@@ -1,48 +1,49 @@
-// app/js/photos.js — photos from the user's machine, read locally only.
-// Files are read with FileReader into data URLs and decoded into Images;
-// nothing is ever uploaded anywhere.
-let nextId = 1;
+// photos.js — reading the user's own photos from their machine (FileReader,
+// local only: nothing is uploaded anywhere) and turning them into images the
+// cover renderer can draw.
+(function () {
+  'use strict';
 
-/** Load one File into a photo record {id, name, img, src}. */
-export function loadPhotoFile(file) {
-  return new Promise((resolve, reject) => {
-    if (!file || !file.type.startsWith('image/')) {
-      reject(new Error('Not an image file'));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        resolve({ id: `photo-${nextId++}`, name: file.name, img, src: String(reader.result) });
-      };
-      img.onerror = () => reject(new Error(`Could not decode ${file.name}`));
-      img.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-/** Load an image from a local app URL (used for the built-in samples). */
-export function loadPhotoUrl(url, name) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve({ id: `photo-${nextId++}`, name, img, src: url });
-    img.onerror = () => reject(new Error(`Could not load ${url}`));
-    img.src = url;
-  });
-}
-
-/** Load several files, skipping the ones that fail, in file order. */
-export async function loadPhotoFiles(files) {
-  const loaded = [];
-  for (const file of files) {
-    try {
-      loaded.push(await loadPhotoFile(file));
-    } catch (err) {
-      console.warn('[photos]', err.message);
-    }
+  function loadImageFromDataUrl(dataUrl) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { reject(new Error('unreadable image')); };
+      img.src = dataUrl;
+    });
   }
-  return loaded;
-}
+
+  function readFileAsDataUrl(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(reader.result); };
+      reader.onerror = function () { reject(new Error('cannot read ' + file.name)); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Reads each File into {img, label, sample:false}. Files that are not
+  // images, or that fail to decode, are skipped and reported via onSkip.
+  function readPhotoFiles(files, onSkip) {
+    var list = Array.prototype.slice.call(files || []);
+    return Promise.all(list.map(function (file) {
+      if (!/^image\//.test(file.type || '')) {
+        if (onSkip) onSkip(file.name, 'not an image');
+        return null;
+      }
+      return readFileAsDataUrl(file)
+        .then(loadImageFromDataUrl)
+        .then(function (img) { return { img: img, label: file.name, sample: false }; })
+        .catch(function () {
+          if (onSkip) onSkip(file.name, 'could not be decoded');
+          return null;
+        });
+    })).then(function (photos) {
+      return photos.filter(function (p) { return p !== null; });
+    });
+  }
+
+  window.SCM = window.SCM || {};
+  window.SCM.readPhotoFiles = readPhotoFiles;
+  window.SCM.loadImageFromDataUrl = loadImageFromDataUrl;
+})();

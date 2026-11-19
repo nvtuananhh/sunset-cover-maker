@@ -1,199 +1,179 @@
-// app/js/caption.js — caption lettering: bold condensed title, subtitle and
-// tag line, drawn on the cover canvas with outline, shadow and an optional
-// gradient fill. Position is stored as a fraction of the canvas so the same
-// caption lands identically at every export size.
-export const CAPTION_COLORS = [
-  { name: 'Sunset White', fill: '#fff7ed', outline: '#1c0a1e', shadow: '#ff5e3a', gradient: null },
-  { name: 'Neon Pink', fill: '#ffd7f2', outline: '#2b0340', shadow: '#ff2fb3', gradient: ['#ffe9a8', '#ff5e8a'] },
-  { name: 'Gold Rush', fill: '#fff3c4', outline: '#241203', shadow: '#f4842b', gradient: ['#fff6c9', '#ffb347'] },
-  { name: 'Ocean Pop', fill: '#e8fbff', outline: '#04263a', shadow: '#22d3ee', gradient: ['#c9f6ff', '#4dd8ff'] },
-  { name: 'Bubblegum', fill: '#ffe3ee', outline: '#3d0a24', shadow: '#ff2f6d', gradient: ['#ffd1e3', '#ff7ab8'] },
-];
+// caption.js — the bold poster caption: big condensed title, subtitle and
+// tag line, drawn with glyph-accurate letter spacing so the block never
+// overflows the cover. Colour presets, outline + shadow, draggable position.
+(function () {
+  'use strict';
 
-/** A fresh caption: title, subtitle and tag line, centred near the bottom. */
-export function defaultCaption() {
-  return {
-    title: 'NEON SHORE',
-    subtitle: 'Vice City nights, your story',
-    tagline: 'SUNSET COVER MAKER',
-    color: 0,
-    size: 1,
-    spacing: 0.04,
-    x: 0.5,
-    y: 0.88,
-    align: 'center',
+  var CAPTION_COLORS = {
+    white: { fill: '#ffffff', stroke: '#1a0b26', bar: '#ff7a3d' },
+    sunset: { gradient: true, stroke: '#1a0b26', bar: '#ffc46b' },
+    neon: { fill: '#ff4dd2', stroke: '#12081c', bar: '#37e0c8' },
+    gold: { fill: '#ffc46b', stroke: '#1a0b26', bar: '#ff4d8d' },
+    black: { fill: '#14101a', stroke: '#ffffff', bar: '#ff7a3d' },
   };
-}
 
-/** The title font size in px: scales with the shorter canvas side. */
-export function titleSize(W, H, caption) {
-  return Math.round(Math.min(W, H) * 0.105 * caption.size);
-}
-
-/**
- * Measure the caption block (title + subtitle + tagline) in canvas space.
- * Returns {x, y, w, h} of the block's bounding box, clamped inside the
- * canvas with a small margin — the caption can never run off the cover.
- */
-export function measureCaptionBlock(ctx, W, H, caption) {
-  const margin = Math.min(W, H) * 0.03;
-  const maxW = W - margin * 2;
-  let size = titleSize(W, H, caption);
-  ctx.save();
-  ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
-  try {
-    ctx.letterSpacing = `${size * caption.spacing}px`;
-  } catch (_) {}
-  let titleW = ctx.measureText(caption.title.toUpperCase()).width;
-  // A long title must shrink to fit, never run off the cover.
-  while (titleW > maxW && size > 12) {
-    size = Math.max(12, Math.round(size * 0.92));
-    ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
-    try {
-      ctx.letterSpacing = `${size * caption.spacing}px`;
-    } catch (_) {}
-    titleW = ctx.measureText(caption.title.toUpperCase()).width;
+  function defaultCaption() {
+    return {
+      title: 'NEON SHORE',
+      subtitle: 'VICE CITY NIGHTS',
+      tag: 'OUT NOW · SUNSET COVER MAKER',
+      sizePct: 100,
+      spacing: 6,
+      color: 'white',
+      xPct: 50,
+      yPct: 82,
+    };
   }
-  const subSize = Math.max(10, Math.round(size * 0.26));
-  let tagSize = Math.max(9, Math.round(size * 0.17));
-  const gap1 = size * 0.18;
-  const gap2 = size * 0.22;
-  ctx.font = `600 ${subSize}px Inter, system-ui, sans-serif`;
-  try {
-    ctx.letterSpacing = '0px';
-  } catch (_) {}
-  const subW = caption.subtitle ? ctx.measureText(caption.subtitle).width : 0;
-  // The tag line is tracked out, so measure it glyph by glyph.
-  ctx.font = `700 ${tagSize}px Inter, system-ui, sans-serif`;
-  let tagW = caption.tagline ? spacedTagWidth(ctx, caption.tagline.toUpperCase(), tagSize * 0.32) : 0;
-  while (tagW > maxW && tagSize > 8) {
-    tagSize = Math.max(8, Math.round(tagSize * 0.92));
-    ctx.font = `700 ${tagSize}px Inter, system-ui, sans-serif`;
-    tagW = spacedTagWidth(ctx, caption.tagline.toUpperCase(), tagSize * 0.32);
+
+  // Width of text drawn with `spacing` px between glyphs, at the ctx's font.
+  function spacedWidth(ctx, text, spacing) {
+    if (!text) return 0;
+    var w = 0;
+    for (var i = 0; i < text.length; i++) w += ctx.measureText(text[i]).width;
+    return w + spacing * Math.max(0, text.length - 1);
   }
-  ctx.restore();
-  const w = Math.max(titleW, subW, tagW);
-  const h = size + gap1 + subSize + gap2 + tagSize;
-  const cx = caption.x * W;
-  const cy = caption.y * H;
-  const x = Math.min(Math.max(cx - w / 2, margin), W - margin - w);
-  const y = Math.min(Math.max(cy - h, margin), H - margin - h);
-  return { x, y, w, h, size, subSize, tagSize, gap1, gap2 };
-}
 
-/** Width of a tracked-out tag line, measured glyph by glyph (canvas
- * measureText does not reliably include letterSpacing, so we add the
- * tracking ourselves: advance per glyph + tracking between glyphs). */
-function spacedTagWidth(ctx, text, tracking) {
-  let w = 0;
-  for (const ch of text) w += ctx.measureText(ch).width;
-  return w + tracking * Math.max(0, text.length - 1);
-}
-
-/** Draw a tracked-out tag line centred on cx, returning its pixel width. */
-function drawSpacedTag(ctx, text, cx, y, tracking) {
-  const total = spacedTagWidth(ctx, text, tracking);
-  let x = cx - total / 2;
-  ctx.save();
-  ctx.textAlign = 'left';
-  for (const ch of text) {
-    ctx.fillText(ch, x, y);
-    x += ctx.measureText(ch).width + tracking;
+  // Draws text centred on cx, glyph by glyph, honouring letter spacing.
+  function drawSpacedText(ctx, text, cx, y, spacing) {
+    if (!text) return;
+    var w = spacedWidth(ctx, text, spacing);
+    var x = cx - w / 2;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      ctx.fillText(ch, x, y);
+      ctx.strokeText(ch, x, y);
+      x += ctx.measureText(ch).width + spacing;
+    }
   }
-  ctx.restore();
-  return total;
-}
 
-/** Fill text with a solid colour or a vertical gradient across the block. */
-function fillTitleText(ctx, text, x, y, preset, blockW) {
-  if (preset.gradient) {
-    const grad = ctx.createLinearGradient(x, y - blockW * 0.1, x, y + blockW * 0.08);
-    grad.addColorStop(0, preset.gradient[0]);
-    grad.addColorStop(1, preset.gradient[1]);
-    ctx.fillStyle = grad;
-  } else {
-    ctx.fillStyle = preset.fill;
+  // Same, but only the fill (used for the shadow pass).
+  function drawSpacedFillOnly(ctx, text, cx, y, spacing) {
+    if (!text) return;
+    var w = spacedWidth(ctx, text, spacing);
+    var x = cx - w / 2;
+    for (var i = 0; i < text.length; i++) {
+      ctx.fillText(text[i], x, y);
+      x += ctx.measureText(text[i]).width + spacing;
+    }
   }
-  ctx.fillText(text, x, y);
-}
 
-/**
- * Draw the caption. For the full-bleed layout a dark poster bar sits behind
- * the block so white lettering stays readable over any photo.
- */
-export function drawCaption(ctx, W, H, caption, layoutId) {
-  const preset = CAPTION_COLORS[caption.color] || CAPTION_COLORS[0];
-  const block = measureCaptionBlock(ctx, W, H, caption);
-  const cx = caption.x * W;
-  const { size, subSize, tagSize, gap1, gap2 } = block;
-  const margin = Math.min(W, H) * 0.03;
+  // Measures the caption block (title + subtitle + tag) at a given width so
+  // the editor can hit-test it for dragging.
+  function captionBlockRect(W, H, caption) {
+    var s = Math.min(W, H);
+    var titlePx = (s * 0.115 * caption.sizePct) / 100;
+    var subPx = Math.max(14, s * 0.032);
+    var tagPx = Math.max(12, s * 0.02);
+    var cx = (W * caption.xPct) / 100;
+    var cy = (H * caption.yPct) / 100;
+    var blockH = titlePx * 1.05 + subPx * 1.9 + tagPx * 2.6;
+    var blockW = Math.min(W * 0.94, titlePx * 0.62 * Math.max(1, caption.title.length));
+    return { x: cx - blockW / 2, y: cy - blockH / 2, w: blockW, h: blockH, cx: cx, cy: cy };
+  }
 
-  if (layoutId === 'fullbleed') {
+  function drawCaption(ctx, W, H, caption) {
+    var preset = CAPTION_COLORS[caption.color] || CAPTION_COLORS.white;
+    var s = Math.min(W, H);
+    var scale = s / 1080; // spacing and strokes scale with the cover
+    var cx = (W * caption.xPct) / 100;
+    var cy = (H * caption.yPct) / 100;
+    var titlePx = (s * 0.115 * caption.sizePct) / 100;
+    var spacing = caption.spacing * scale * (s / 1080 + 0.6);
+    var subPx = Math.max(13, s * 0.032);
+    var tagPx = Math.max(11, s * 0.02);
+
+    var title = (caption.title || '').toUpperCase();
+    var subtitle = (caption.subtitle || '').toUpperCase();
+    var tag = (caption.tag || '').toUpperCase();
+
+    // Title font, shrunk until the spaced title fits 92% of the width.
+    var fontPx = titlePx;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    while (fontPx > 20) {
+      ctx.font = fontPx + 'px Anton, sans-serif';
+      if (spacedWidth(ctx, title, spacing) <= W * 0.92) break;
+      fontPx *= 0.92;
+    }
+    var titleFont = fontPx + 'px Anton, sans-serif';
+    var titleH = fontPx;
+    var subH = subPx * 1.9;
+    var tagH = tagPx * 2.4;
+    var top = cy - (titleH + subH + tagH) / 2;
+
+    // Sunset bar above the title.
+    var barW = Math.min(W * 0.34, spacedWidth(ctx, title, spacing) * 0.5);
+    var barH = Math.max(4, 7 * scale);
     ctx.save();
-    const barH = block.h + size * 0.55;
-    const barY = Math.min(block.y - size * 0.32, H - barH - margin * 0.4);
-    const grad = ctx.createLinearGradient(0, barY, 0, barY + barH);
-    grad.addColorStop(0, 'rgba(16,4,22,0)');
-    grad.addColorStop(0.35, 'rgba(16,4,22,0.72)');
-    grad.addColorStop(1, 'rgba(16,4,22,0.88)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, barY, W, barH);
-    ctx.fillStyle = 'rgba(255,94,58,0.9)';
-    ctx.fillRect(0, barY, W, Math.max(3, size * 0.045));
+    ctx.fillStyle = preset.bar;
+    ctx.fillRect(cx - barW / 2, top, barW, barH);
     ctx.restore();
+
+    var titleY = top + barH + titleH / 2 + titleH * 0.08;
+    var subY = titleY + titleH / 2 + subPx * 0.95;
+    var tagY = subY + subPx * 0.95 + tagPx * 1.1;
+
+    // Title: hard offset shadow, thick outline, then the fill.
+    ctx.save();
+    ctx.font = titleFont;
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(2, fontPx * 0.085);
+    var shadowOff = Math.max(3, fontPx * 0.045);
+    ctx.fillStyle = 'rgba(18,8,28,0.85)';
+    ctx.strokeStyle = 'rgba(18,8,28,0.85)';
+    drawSpacedFillOnly(ctx, title, cx + shadowOff, titleY + shadowOff, spacing);
+    ctx.strokeStyle = preset.stroke;
+    ctx.fillStyle = preset.fill || '#ffffff';
+    if (preset.gradient) {
+      var g = ctx.createLinearGradient(cx - W * 0.3, titleY, cx + W * 0.3, titleY);
+      g.addColorStop(0, '#ffc46b');
+      g.addColorStop(0.5, '#ff7a3d');
+      g.addColorStop(1, '#ff4d8d');
+      ctx.fillStyle = g;
+    }
+    drawSpacedText(ctx, title, cx, titleY, spacing);
+    ctx.restore();
+
+    // Subtitle: bold Inter, wide tracking, with a thin underline.
+    ctx.save();
+    ctx.font = '700 ' + subPx + 'px Inter, sans-serif';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(1.5, subPx * 0.12);
+    ctx.strokeStyle = 'rgba(18,8,28,0.9)';
+    ctx.fillStyle = '#ffffff';
+    var subSpacing = spacing * 0.9 + subPx * 0.12;
+    drawSpacedText(ctx, subtitle, cx, subY, subSpacing);
+    var subW = spacedWidth(ctx, subtitle, subSpacing);
+    ctx.fillStyle = preset.bar;
+    ctx.fillRect(cx - subW / 2, subY + subPx * 0.85, subW, Math.max(2, 3 * scale));
+    ctx.restore();
+
+    // Tag line: small caps inside a dark pill.
+    if (tag) {
+      ctx.save();
+      ctx.font = '600 ' + tagPx + 'px Inter, sans-serif';
+      var tagSpacing = tagPx * 0.14;
+      var tagW = spacedWidth(ctx, tag, tagSpacing);
+      var pillW = tagW + tagPx * 2.2;
+      var pillH = tagPx * 2.1;
+      var pillX = cx - pillW / 2;
+      var pillY = tagY - pillH / 2;
+      ctx.fillStyle = 'rgba(18,8,28,0.72)';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(pillX, pillY, pillW, pillH, pillH / 2);
+      else ctx.rect(pillX, pillY, pillW, pillH);
+      ctx.fill();
+      ctx.fillStyle = '#ffe9c9';
+      ctx.strokeStyle = 'rgba(18,8,28,0)';
+      drawSpacedText(ctx, tag, cx, tagY + tagPx * 0.06, tagSpacing);
+      ctx.restore();
+    }
   }
 
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  let y = block.y + size;
-
-  // Title: shadow, thick outline, gradient/solid fill.
-  ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
-  try {
-    ctx.letterSpacing = `${size * caption.spacing}px`;
-  } catch (_) {}
-  const title = caption.title.toUpperCase();
-  ctx.lineJoin = 'round';
-  ctx.miterLimit = 2;
-  ctx.strokeStyle = preset.outline;
-  ctx.lineWidth = Math.max(2, size * 0.14);
-  ctx.fillStyle = preset.shadow;
-  ctx.fillText(title, cx + size * 0.045, y + size * 0.05);
-  ctx.strokeText(title, cx, y);
-  fillTitleText(ctx, title, cx, y, preset, block.w);
-
-  // Subtitle: clean sans, soft dark shadow.
-  if (caption.subtitle) {
-    y += gap1 + subSize;
-    ctx.font = `600 ${subSize}px Inter, system-ui, sans-serif`;
-    try {
-      ctx.letterSpacing = '0px';
-    } catch (_) {}
-    ctx.fillStyle = 'rgba(12,2,16,0.75)';
-    ctx.fillText(caption.subtitle, cx + 2, y + 2);
-    ctx.fillStyle = '#fff7ed';
-    ctx.fillText(caption.subtitle, cx, y);
-  }
-
-  // Tag line: tracked-out caps with rules on either side.
-  if (caption.tagline) {
-    y += gap2 + tagSize;
-    const tag = caption.tagline.toUpperCase();
-    const tracking = tagSize * 0.32;
-    ctx.font = `700 ${tagSize}px Inter, system-ui, sans-serif`;
-    ctx.fillStyle = preset.gradient ? preset.gradient[0] : preset.fill;
-    const tagW = drawSpacedTag(ctx, tag, cx, y, tracking);
-    const ruleY = y - tagSize * 0.32;
-    const ruleGap = tagSize * 0.9;
-    ctx.strokeStyle = 'rgba(255,247,237,0.85)';
-    ctx.lineWidth = Math.max(1.5, tagSize * 0.09);
-    ctx.beginPath();
-    ctx.moveTo(cx - tagW / 2 - ruleGap - tagSize * 2.4, ruleY);
-    ctx.lineTo(cx - tagW / 2 - ruleGap, ruleY);
-    ctx.moveTo(cx + tagW / 2 + ruleGap, ruleY);
-    ctx.lineTo(cx + tagW / 2 + ruleGap + tagSize * 2.4, ruleY);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
+  window.SCM = window.SCM || {};
+  window.SCM.captionColors = CAPTION_COLORS;
+  window.SCM.defaultCaption = defaultCaption;
+  window.SCM.drawCaption = drawCaption;
+  window.SCM.captionBlockRect = captionBlockRect;
+  window.SCM.spacedWidth = spacedWidth;
+})();

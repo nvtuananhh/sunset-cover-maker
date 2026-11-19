@@ -1,421 +1,296 @@
-// tools/make-samples.mjs — generates the two built-in sample photos for
-// Sunset Cover Maker as PNGs, drawn entirely in code (no real-person photo,
-// no game art). Pure Node: a tiny RGBA canvas + a hand-rolled PNG encoder
-// (zlib deflate, CRC32). Deterministic: same seed, same bytes every run.
-//
-//   node tools/make-samples.mjs
-// writes app/samples/boulevard.png and app/samples/pier.png (1080 x 1350).
+// make-samples.mjs — generates the two built-in sample photos for Sunset Cover
+// Maker. Pure Node (stdlib only): a tiny software rasterizer draws original
+// sunset cityscape scenes with a person silhouette, then encodes them as PNG.
+// No real-person photo, no game art, nothing copied: every pixel is drawn here.
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT_DIR = join(ROOT, 'app', 'samples');
-const W = 1080;
-const H = 1350;
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const outDir = join(root, 'app', 'samples');
+mkdirSync(outDir, { recursive: true });
 
-// ------------------------------------------------------------------ rng
-// mulberry32: a small seeded PRNG so both scenes are byte-stable.
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-// ------------------------------------------------------------------ canvas
-class Canvas {
-  constructor(w, h) {
-    this.w = w;
-    this.h = h;
-    this.px = new Uint8ClampedArray(w * h * 4);
-  }
-  set(x, y, r, g, b, a = 255) {
-    if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
-    const i = (y * this.w + x) * 4;
-    this.px[i] = r;
-    this.px[i + 1] = g;
-    this.px[i + 2] = b;
-    this.px[i + 3] = a;
-  }
-  // Alpha-blend a colour over the pixel.
-  blend(x, y, r, g, b, a) {
-    if (x < 0 || y < 0 || x >= this.w || y >= this.h || a <= 0) return;
-    const i = (y * this.w + x) * 4;
-    const s = a / 255;
-    this.px[i] = r * s + this.px[i] * (1 - s);
-    this.px[i + 1] = g * s + this.px[i + 1] * (1 - s);
-    this.px[i + 2] = b * s + this.px[i + 2] * (1 - s);
-    this.px[i + 3] = 255;
-  }
-  fillRect(x0, y0, x1, y1, [r, g, b], a = 255) {
-    for (let y = Math.max(0, y0); y < Math.min(this.h, y1); y++) {
-      for (let x = Math.max(0, x0); x < Math.min(this.w, x1); x++) this.blend(x, y, r, g, b, a);
-    }
-  }
-  // Vertical gradient between colour stops [[t, [r,g,b]], ...].
-  vgrad(stops) {
-    for (let y = 0; y < this.h; y++) {
-      const t = y / (this.h - 1);
-      let a = stops[0];
-      let b = stops[stops.length - 1];
-      for (let s = 0; s < stops.length - 1; s++) {
-        if (t >= stops[s][0] && t <= stops[s + 1][0]) {
-          a = stops[s];
-          b = stops[s + 1];
-          break;
-        }
-      }
-      const f = (t - a[0]) / Math.max(1e-6, b[0] - a[0]);
-      const c = a[1].map((v, i) => Math.round(v + (b[1][i] - v) * f));
-      for (let x = 0; x < this.w; x++) this.set(x, y, c[0], c[1], c[2]);
-    }
-  }
-  disc(cx, cy, rad, [r, g, b], a = 255) {
-    for (let y = Math.floor(cy - rad); y <= Math.ceil(cy + rad); y++) {
-      for (let x = Math.floor(cx - rad); x <= Math.ceil(cx + rad); x++) {
-        const d = Math.hypot(x - cx, y - cy);
-        if (d <= rad) this.blend(x, y, r, g, b, a);
-      }
-    }
-  }
-  // Soft disc: alpha falls off with distance (for sun glow).
-  glow(cx, cy, rad, [r, g, b], peak) {
-    for (let y = Math.floor(cy - rad); y <= Math.ceil(cy + rad); y++) {
-      for (let x = Math.floor(cx - rad); x <= Math.ceil(cx + rad); x++) {
-        const d = Math.hypot(x - cx, y - cy) / rad;
-        if (d < 1) this.blend(x, y, r, g, b, Math.round(peak * (1 - d) * (1 - d)));
-      }
-    }
-  }
-  // Thick line drawn as a chain of discs.
-  line(x0, y0, x1, y1, w, [r, g, b], a = 255) {
-    const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2);
-    for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      this.disc(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, w / 2, [r, g, b], a);
-    }
-  }
-  // Filled polygon (even-odd scanline fill).
-  poly(points, [r, g, b], a = 255) {
-    const ys = points.map((p) => p[1]);
-    const y0 = Math.max(0, Math.floor(Math.min(...ys)));
-    const y1 = Math.min(this.h - 1, Math.ceil(Math.max(...ys)));
-    for (let y = y0; y <= y1; y++) {
-      const xs = [];
-      for (let i = 0; i < points.length; i++) {
-        const [ax, ay] = points[i];
-        const [bx, by] = points[(i + 1) % points.length];
-        if ((ay <= y && by > y) || (by <= y && ay > y)) {
-          xs.push(ax + ((y - ay) / (by - ay)) * (bx - ax));
-        }
-      }
-      xs.sort((p, q) => p - q);
-      for (let k = 0; k + 1 < xs.length; k += 2) {
-        for (let x = Math.max(0, Math.ceil(xs[k])); x <= Math.min(this.w - 1, xs[k + 1]); x++) {
-          this.blend(x, y, r, g, b, a);
-        }
-      }
-    }
-  }
-  ellipse(cx, cy, rx, ry, [r, g, b], a = 255) {
-    for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
-      for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
-        const d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
-        if (d <= 1) this.blend(x, y, r, g, b, a);
-      }
-    }
-  }
-}
-
-// ------------------------------------------------------------------ PNG
+// ---- PNG encoder (stdlib only) -------------------------------------------
 const CRC_TABLE = (() => {
-  const table = new Uint32Array(256);
+  const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
     let c = n;
     for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[n] = c >>> 0;
+    t[n] = c >>> 0;
   }
-  return table;
+  return t;
 })();
+
 function crc32(buf) {
   let c = 0xffffffff;
-  for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 }
+
 function chunk(type, data) {
-  const out = Buffer.alloc(12 + data.length);
-  out.writeUInt32BE(data.length, 0);
-  out.write(type, 4, 'ascii');
-  Buffer.from(data).copy(out, 8);
-  out.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type, 'ascii'), Buffer.from(data)])), 8 + data.length);
-  return out;
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length, 0);
+  const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(body), 0);
+  return Buffer.concat([len, body, crc]);
 }
-function encodePng(cv) {
+
+function encodePNG(w, h, rgba) {
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(cv.w, 0);
-  ihdr.writeUInt32BE(cv.h, 4);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 6; // colour type RGBA
-  const raw = Buffer.alloc(cv.h * (1 + cv.w * 4));
-  for (let y = 0; y < cv.h; y++) {
-    raw[y * (1 + cv.w * 4)] = 0; // filter: none
-    Buffer.from(cv.px.buffer, y * cv.w * 4, cv.w * 4).copy(raw, y * (1 + cv.w * 4) + 1);
+  const raw = Buffer.alloc(h * (1 + w * 4));
+  for (let y = 0; y < h; y++) {
+    raw[y * (1 + w * 4)] = 0;
+    rgba.copy(raw, y * (1 + w * 4) + 1, y * w * 4, (y + 1) * w * 4);
   }
-  const idat = deflateSync(raw, { level: 9 });
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', ihdr),
-    chunk('IDAT', idat),
+    chunk('IDAT', deflateSync(raw, { level: 9 })),
     chunk('IEND', Buffer.alloc(0)),
   ]);
 }
 
-// ------------------------------------------------------------------ shared drawing
-const INK = [24, 8, 32]; // near-black violet silhouette colour
-const DARK = [16, 6, 26];
-
-function stars(cv, rnd, count, yMax) {
-  for (let i = 0; i < count; i++) {
-    const x = rnd() * W;
-    const y = rnd() * yMax;
-    const s = 1 + rnd() * 2;
-    cv.disc(x, y, s, [255, 240, 220], Math.round(90 + rnd() * 140));
-  }
-}
-
-// A city skyline: dark towers with a few lit windows, baseline at `base`.
-function skyline(cv, rnd, base, minH, maxH) {
-  let x = -20;
-  while (x < W + 20) {
-    const bw = 50 + rnd() * 90;
-    const bh = minH + rnd() * (maxH - minH);
-    const top = base - bh;
-    cv.fillRect(Math.round(x), Math.round(top), Math.round(x + bw), base, INK);
-    // Rooftop antenna on some towers.
-    if (rnd() < 0.3) cv.line(x + bw / 2, top, x + bw / 2, top - 26 - rnd() * 30, 3, INK);
-    // Lit windows.
-    const cols = Math.floor(bw / 22);
-    const rows = Math.floor(bh / 30);
-    for (let cxi = 0; cxi < cols; cxi++) {
-      for (let ryi = 0; ryi < rows; ryi++) {
-        if (rnd() < 0.22) {
-          const wx = x + 8 + cxi * 22;
-          const wy = top + 12 + ryi * 30;
-          const warm = rnd() < 0.7;
-          cv.fillRect(Math.round(wx), Math.round(wy), Math.round(wx + 9), Math.round(wy + 12), warm ? [255, 190, 90] : [120, 230, 255], 235);
+// ---- tiny rasterizer -------------------------------------------------------
+function makeCanvas(w, h) {
+  const buf = Buffer.alloc(w * h * 4);
+  const px = (x, y, r, g, b, a = 255) => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    const i = (y * w + x) * 4;
+    const sa = a / 255;
+    buf[i] = Math.round(r * sa + buf[i] * (1 - sa));
+    buf[i + 1] = Math.round(g * sa + buf[i + 1] * (1 - sa));
+    buf[i + 2] = Math.round(b * sa + buf[i + 2] * (1 - sa));
+    buf[i + 3] = 255;
+  };
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const mix = (c1, c2, t) => [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
+  return {
+    w, h, buf, px,
+    vgrad(y0, y1, stops) {
+      for (let y = 0; y < h; y++) {
+        const t = Math.min(1, Math.max(0, (y - y0) / (y1 - y0)));
+        let c = stops[stops.length - 1][1];
+        for (let s = 0; s < stops.length - 1; s++) {
+          if (t >= stops[s][0] && t <= stops[s + 1][0]) {
+            c = mix(stops[s][1], stops[s + 1][1], (t - stops[s][0]) / (stops[s + 1][0] - stops[s][0]));
+            break;
+          }
+        }
+        for (let x = 0; x < w; x++) px(x, y, c[0], c[1], c[2]);
+      }
+    },
+    rect(x0, y0, x1, y1, c, a = 255) {
+      for (let y = Math.max(0, y0 | 0); y < Math.min(h, y1 | 0); y++)
+        for (let x = Math.max(0, x0 | 0); x < Math.min(w, x1 | 0); x++) px(x, y, c[0], c[1], c[2], a);
+    },
+    circle(cx, cy, r, c, a = 255) {
+      for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++)
+        for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+          const d = Math.hypot(x - cx, y - cy);
+          if (d <= r) px(x, y, c[0], c[1], c[2], a);
+        }
+    },
+    glow(cx, cy, r, c, strength = 1) {
+      for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++)
+        for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+          const d = Math.hypot(x - cx, y - cy) / r;
+          if (d < 1) {
+            const f = (1 - d) * (1 - d) * strength;
+            px(x, y, c[0], c[1], c[2], Math.round(255 * Math.min(1, f)));
+          }
+        }
+    },
+    line(x0, y0, x1, y1, thick, c, a = 255) {
+      const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0)) * 2 + 1;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        this.circle(lerp(x0, x1, t), lerp(y0, y1, t), thick / 2, c, a);
+      }
+    },
+    poly(points, c, a = 255) {
+      let minY = Infinity, maxY = -Infinity;
+      for (const [, y] of points) { minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+      for (let y = Math.max(0, Math.floor(minY)); y <= Math.min(h - 1, Math.ceil(maxY)); y++) {
+        const xs = [];
+        for (let i = 0; i < points.length; i++) {
+          const [ax, ay] = points[i];
+          const [bx, by] = points[(i + 1) % points.length];
+          if ((ay <= y && by > y) || (by <= y && ay > y)) {
+            xs.push(ax + ((y - ay) / (by - ay)) * (bx - ax));
+          }
+        }
+        xs.sort((p, q) => p - q);
+        for (let k = 0; k + 1 < xs.length; k += 2) {
+          for (let x = Math.max(0, Math.ceil(xs[k])); x <= Math.min(w - 1, Math.floor(xs[k + 1])); x++) {
+            px(x, y, c[0], c[1], c[2], a);
+          }
         }
       }
+    },
+  };
+}
+
+// Deterministic pseudo-random so both scenes are reproducible.
+function rng(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+const INK = [16, 8, 26]; // near-black violet silhouette colour
+
+function drawPalm(cv, x, baseY, s, lean) {
+  const topX = x + lean * s;
+  const topY = baseY - 150 * s;
+  cv.line(x, baseY, topX, topY, 10 * s, INK);
+  for (let f = 0; f < 7; f++) {
+    const ang = (-Math.PI / 2) + (f - 3) * 0.42;
+    const len = 62 * s * (1 - Math.abs(f - 3) * 0.08);
+    const ex = topX + Math.cos(ang) * len;
+    const ey = topY + Math.sin(ang) * len + 26 * s;
+    cv.line(topX, topY, ex, ey, 5 * s, INK);
+    // drooping frond tip
+    cv.line(ex, ey, ex + (f < 3 ? -14 : 14) * s, ey + 16 * s, 3 * s, INK);
+  }
+  cv.circle(topX, topY, 7 * s, INK);
+}
+
+function drawPerson(cv, x, baseY, s, pose) {
+  // Stylised standing figure silhouette: head, torso, legs, one arm bent.
+  const headR = 13 * s;
+  const headY = baseY - 118 * s;
+  cv.circle(x, headY, headR, INK);
+  // hair / cap brim
+  cv.rect(x - headR, headY - headR - 2 * s, x + headR, headY - headR + 6 * s, INK);
+  // torso: shoulders wide, waist narrow
+  cv.poly([
+    [x - 22 * s, baseY - 96 * s], [x + 22 * s, baseY - 96 * s],
+    [x + 15 * s, baseY - 34 * s], [x - 15 * s, baseY - 34 * s],
+  ], INK);
+  if (pose === 'rod') {
+    // arm raised holding a fishing rod angled up-right
+    cv.line(x + 18 * s, baseY - 88 * s, x + 52 * s, baseY - 108 * s, 7 * s, INK);
+    cv.line(x + 52 * s, baseY - 108 * s, x + 150 * s, baseY - 190 * s, 3 * s, INK);
+    cv.line(x + 150 * s, baseY - 190 * s, x + 168 * s, baseY - 150 * s, 2 * s, INK);
+    cv.line(x - 18 * s, baseY - 88 * s, x - 30 * s, baseY - 52 * s, 7 * s, INK);
+  } else {
+    // one hand on hip, other arm relaxed; sunglasses glint
+    cv.line(x + 20 * s, baseY - 90 * s, x + 34 * s, baseY - 52 * s, 7 * s, INK);
+    cv.line(x - 20 * s, baseY - 90 * s, x - 30 * s, baseY - 40 * s, 7 * s, INK);
+    cv.rect(x - 9 * s, headY - 4 * s, x + 9 * s, headY + 1 * s, [255, 190, 120], 200);
+  }
+  // legs
+  cv.line(x - 7 * s, baseY - 34 * s, x - 12 * s, baseY, 9 * s, INK);
+  cv.line(x + 7 * s, baseY - 34 * s, x + 13 * s, baseY, 9 * s, INK);
+}
+
+function skyline(cv, baseY, hMin, hMax, seed, windowCol) {
+  const r = rng(seed);
+  let x = -10;
+  while (x < cv.w + 10) {
+    const bw = 46 + r() * 90;
+    const bh = hMin + r() * (hMax - hMin);
+    cv.rect(x, baseY - bh, x + bw, baseY, INK);
+    if (r() < 0.5) cv.rect(x + bw * 0.3, baseY - bh - 18, x + bw * 0.7, baseY - bh, INK);
+    // lit windows
+    for (let wy = baseY - bh + 10; wy < baseY - 12; wy += 18) {
+      for (let wx = x + 8; wx < x + bw - 8; wx += 16) {
+        if (r() < 0.28) cv.rect(wx, wy, wx + 6, wy + 8, windowCol, 220);
+      }
     }
-    x += bw + 4 + rnd() * 26;
+    x += bw + 4 + r() * 26;
   }
 }
 
-// A palm tree silhouette: curved trunk + drooping fronds.
-function palm(cv, x, y, h, lean, rnd) {
-  const topX = x + lean;
-  const topY = y - h;
-  // Trunk as a tapering polyline so it reads as one solid curve.
-  const steps = 24;
-  let px = x;
-  let py = y;
-  for (let s = 1; s <= steps; s++) {
-    const t = s / steps;
-    const nx = x + lean * t * t + Math.sin(t * 2.2) * 6;
-    const ny = y - h * t;
-    cv.line(px, py, nx, ny, Math.max(5, 15 - t * 9), INK);
-    px = nx;
-    py = ny;
-  }
-  // Fronds: arcs of short segments drooping from the crown.
-  for (let f = 0; f < 8; f++) {
-    const ang = Math.PI * (0.08 + (f / 8) * 0.84);
-    const len = h * (0.34 + rnd() * 0.12);
-    let px = topX;
-    let py = topY;
-    const segs = 7;
-    for (let s = 1; s <= segs; s++) {
-      const t = s / segs;
-      const nx = topX + Math.cos(ang) * len * t * (f % 2 === 0 ? 1 : -0.9);
-      const ny = topY + Math.sin(ang) * len * t * 0.55 + len * 0.28 * t * t;
-      cv.line(px, py, nx, ny, Math.max(2, 6 - t * 3), INK);
-      px = nx;
-      py = ny;
-    }
-  }
-  // Coconuts.
-  cv.disc(topX - 8, topY + 10, 7, INK);
-  cv.disc(topX + 9, topY + 12, 6, INK);
-}
-
-// A standing person silhouette, facing the viewer, one hand on hip.
-// Proportions: head ~1/7.5 of height, slim tapered torso, legs to baseY.
-function person(cv, cx, baseY, h) {
-  const headR = h * 0.075;
-  const headY = baseY - h + headR;
-  const shoulderY = headY + headR * 1.5;
-  const hipY = baseY - h * 0.28;
-  // Hair: a simple cap over the head.
-  cv.ellipse(cx, headY - headR * 0.3, headR * 1.05, headR * 0.9, INK);
-  // Face opening (skin-tone shadow, keeps it a silhouette portrait).
-  cv.ellipse(cx, headY + headR * 0.15, headR * 0.68, headR * 0.72, [58, 26, 44]);
-  // Sunglasses glint.
-  cv.fillRect(Math.round(cx - headR * 0.52), Math.round(headY - headR * 0.02), Math.round(cx + headR * 0.52), Math.round(headY + headR * 0.26), [255, 214, 130], 220);
-  // Neck: wide enough to join head and shoulders with no gap.
-  cv.fillRect(Math.round(cx - headR * 0.28), Math.round(headY + headR * 0.6), Math.round(cx + headR * 0.28), Math.round(shoulderY + 4), INK);
-  // Torso: shoulders -> waist -> hips, slim taper.
-  cv.poly(
-    [
-      [cx - h * 0.095, shoulderY],
-      [cx + h * 0.095, shoulderY],
-      [cx + h * 0.075, hipY - h * 0.06],
-      [cx + h * 0.085, hipY],
-      [cx - h * 0.085, hipY],
-      [cx - h * 0.075, hipY - h * 0.06],
-    ],
-    INK,
-  );
-  // Left arm hanging close to the body.
-  cv.line(cx - h * 0.105, shoulderY + h * 0.03, cx - h * 0.12, hipY + h * 0.02, h * 0.038, INK);
-  // Right arm bent, hand on hip.
-  cv.line(cx + h * 0.105, shoulderY + h * 0.03, cx + h * 0.15, hipY - h * 0.1, h * 0.038, INK);
-  cv.line(cx + h * 0.15, hipY - h * 0.1, cx + h * 0.085, hipY - h * 0.04, h * 0.038, INK);
-  // Legs with a visible gap, feet on the ground line.
-  cv.line(cx - h * 0.045, hipY, cx - h * 0.06, baseY, h * 0.042, INK);
-  cv.line(cx + h * 0.045, hipY, cx + h * 0.06, baseY, h * 0.042, INK);
-}
-
-// ------------------------------------------------------------------ scene 1: boulevard
+// ---- Scene 1: boulevard — golden-hour boulevard, person by the road --------
 function boulevard() {
-  const cv = new Canvas(W, H);
-  const rnd = mulberry32(20261119);
-  cv.vgrad([
-    [0, [43, 16, 74]],
-    [0.35, [122, 32, 96]],
-    [0.62, [226, 84, 84]],
-    [0.8, [255, 158, 74]],
-    [1, [255, 205, 110]],
+  const W = 900, H = 1125;
+  const cv = makeCanvas(W, H);
+  cv.vgrad(0, H, [
+    [0, [58, 24, 96]], [0.42, [214, 74, 110]], [0.62, [255, 138, 76]],
+    [0.78, [255, 176, 102]], [1, [46, 16, 52]],
   ]);
-  stars(cv, rnd, 70, 380);
-  // Sun + glow, low over the skyline, right of centre.
-  cv.glow(760, 870, 420, [255, 150, 80], 120);
-  cv.glow(760, 870, 260, [255, 190, 110], 150);
-  cv.disc(760, 870, 150, [255, 224, 150]);
-  cv.disc(760, 870, 132, [255, 238, 190]);
-  skyline(cv, rnd, 1010, 180, 420);
-  // Street: dark asphalt with a warm centre reflection.
-  cv.fillRect(0, 1010, W, H, DARK);
-  for (let i = 0; i < 26; i++) {
-    const y = 1020 + i * 13;
-    const wdt = 60 + i * 9;
-    cv.fillRect(Math.round(540 - wdt / 2), y, Math.round(540 + wdt / 2), y + 5, [255, 170, 90], 26 + i * 2);
+  cv.glow(560, 640, 260, [255, 214, 140], 0.9);
+  cv.circle(560, 640, 92, [255, 236, 180]);
+  // distant skyline
+  skyline(cv, 700, 60, 170, 41, [255, 200, 120]);
+  // sun reflection band on the road
+  for (let y = 700; y < H; y++) {
+    const t = (y - 700) / (H - 700);
+    const wdt = 60 + t * 260;
+    for (let x = 560 - wdt / 2; x < 560 + wdt / 2; x++) {
+      if (((x * 7 + y * 13) % 29) < 9) cv.px(x | 0, y, 255, 170, 90, Math.round(120 * (1 - t * 0.5)));
+    }
   }
-  // Centre dashes rushing toward the viewer.
-  for (let i = 0; i < 7; i++) {
-    const y = 1030 + i * 48;
-    cv.fillRect(532, y, 548, y + 22 + i * 4, [255, 220, 140], 200);
-  }
-  palm(cv, 92, 1040, 430, 46, rnd);
-  palm(cv, 1005, 1050, 380, -40, rnd);
-  person(cv, 400, 1010, 470);
+  cv.rect(0, 700, W, H, [30, 10, 40], 60);
+  // road edges + palms
+  cv.line(120, 700, 0, H, 4, [255, 200, 140], 160);
+  cv.line(780, 700, W, H, 4, [255, 200, 140], 160);
+  drawPalm(cv, 96, 900, 1.15, 26);
+  drawPalm(cv, 812, 940, 1.3, -30);
+  drawPalm(cv, 700, 760, 0.7, 14);
+  drawPerson(cv, 470, 1010, 1.25, 'hip');
+  // foreground vignette
+  cv.rect(0, 1040, W, H, [20, 6, 30], 90);
   return cv;
 }
 
-// ------------------------------------------------------------------ scene 2: pier
+// ---- Scene 2: pier — neon dusk over the water ------------------------------
 function pier() {
-  const cv = new Canvas(W, H);
-  const rnd = mulberry32(777);
-  cv.vgrad([
-    [0, [10, 22, 58]],
-    [0.4, [64, 40, 110]],
-    [0.62, [198, 74, 130]],
-    [0.78, [255, 140, 100]],
-    [1, [255, 196, 120]],
+  const W = 900, H = 1125;
+  const cv = makeCanvas(W, H);
+  cv.vgrad(0, H, [
+    [0, [24, 16, 72]], [0.38, [126, 44, 128]], [0.58, [255, 110, 120]],
+    [0.72, [255, 178, 110]], [1, [16, 22, 48]],
   ]);
-  stars(cv, rnd, 90, 420);
-  // Low sun over the sea.
-  cv.glow(330, 760, 380, [255, 140, 90], 110);
-  cv.disc(330, 760, 120, [255, 214, 140]);
-  // Sea with shimmering sun-path.
-  cv.fillRect(0, 830, W, 1010, [38, 20, 66]);
-  for (let i = 0; i < 34; i++) {
-    const y = 840 + i * 5;
-    const wdt = 90 + rnd() * 260;
-    const x = 330 - wdt / 2 + (rnd() - 0.5) * 120;
-    cv.fillRect(Math.round(x), y, Math.round(x + wdt), y + 2, [255, 190, 110], 40 + rnd() * 90);
+  cv.glow(330, 600, 240, [255, 190, 130], 0.9);
+  cv.circle(330, 600, 78, [255, 228, 170]);
+  // sea shimmer
+  const r = rng(97);
+  for (let y = 640; y < 900; y++) {
+    for (let n = 0; n < 26; n++) {
+      const x = Math.floor(r() * W);
+      const len = 20 + r() * 90;
+      const warm = r() < 0.6;
+      cv.line(x, y, x + len, y, 2, warm ? [255, 170, 110] : [90, 220, 230], 130);
+    }
   }
-  // Distant city lights on the right horizon.
-  skyline(cv, rnd, 832, 60, 150);
-  // Wooden pier: planks in perspective, bottom of frame.
-  cv.fillRect(0, 1010, W, H, [20, 9, 30]);
-  for (let i = 0; i < 12; i++) {
-    const y = 1010 + i * 29;
-    const shade = 34 + i * 3;
-    cv.fillRect(0, y, W, y + 24, [shade, 20, 40]);
-    cv.fillRect(0, y + 24, W, y + 27, [12, 6, 20]);
+  cv.rect(0, 640, W, 900, [20, 26, 60], 70);
+  // pier planks in perspective
+  cv.poly([[300, 900], [600, 900], [900, 1125], [0, 1125]], [52, 30, 44]);
+  for (let i = 0; i < 9; i++) {
+    const t = i / 8;
+    const y = 900 + t * t * 225;
+    cv.line(300 - t * 300, y, 600 + t * 300, y, 3, [120, 80, 90], 200);
   }
-  // Pier posts + rails.
-  cv.fillRect(60, 960, 92, H, INK);
-  cv.fillRect(988, 960, 1020, H, INK);
-  cv.line(60, 985, 1020, 985, 10, INK);
-  // Gulls.
-  for (let i = 0; i < 6; i++) {
-    const gx = 620 + rnd() * 320;
-    const gy = 180 + rnd() * 260;
-    const s = 10 + rnd() * 12;
-    cv.line(gx - s, gy, gx, gy - s * 0.45, 3, INK);
-    cv.line(gx, gy - s * 0.45, gx + s, gy, 3, INK);
+  cv.line(300, 900, 0, 1125, 5, [140, 96, 104], 220);
+  cv.line(600, 900, 900, 1125, 5, [140, 96, 104], 220);
+  // pier posts + lamps
+  for (const [lx, ly] of [[180, 1010], [720, 1010]]) {
+    cv.line(lx, ly, lx, ly - 120, 6, INK);
+    cv.glow(lx, ly - 128, 46, [255, 190, 120], 0.8);
+    cv.circle(lx, ly - 128, 10, [255, 220, 160]);
   }
-  palm(cv, 118, 1020, 360, 38, rnd);
-  // Angler on the pier, rod cast toward the sunset.
-  const cx = 660;
-  const baseY = 1010;
-  const h = 520;
-  const headR = h * 0.075;
-  const headY = baseY - h + headR;
-  const shoulderY = headY + headR * 1.5;
-  const hipY = baseY - h * 0.28;
-  cv.ellipse(cx, headY, headR, headR, INK);
-  // Bucket hat.
-  cv.ellipse(cx, headY - headR * 0.55, headR * 1.25, headR * 0.42, INK);
-  cv.fillRect(Math.round(cx - headR * 1.25), Math.round(headY - headR * 0.62), Math.round(cx + headR * 1.25), Math.round(headY - headR * 0.32), INK);
-  // Neck: joins head and shoulders with no gap.
-  cv.fillRect(Math.round(cx - headR * 0.28), Math.round(headY + headR * 0.6), Math.round(cx + headR * 0.28), Math.round(shoulderY + 4), INK);
-  // Slim tapered torso.
-  cv.poly(
-    [
-      [cx - h * 0.095, shoulderY],
-      [cx + h * 0.095, shoulderY],
-      [cx + h * 0.075, hipY - h * 0.06],
-      [cx + h * 0.085, hipY],
-      [cx - h * 0.085, hipY],
-      [cx - h * 0.075, hipY - h * 0.06],
-    ],
-    INK,
-  );
-  cv.line(cx - h * 0.105, shoulderY + h * 0.03, cx - h * 0.12, hipY + h * 0.02, h * 0.038, INK);
-  cv.line(cx + h * 0.105, shoulderY + h * 0.03, cx + h * 0.15, hipY - h * 0.1, h * 0.038, INK);
-  cv.line(cx - h * 0.045, hipY, cx - h * 0.06, baseY, h * 0.042, INK);
-  cv.line(cx + h * 0.045, hipY, cx + h * 0.06, baseY, h * 0.042, INK);
-  // Fishing rod held up at 45 deg, line dropping to the water.
-  cv.line(cx + h * 0.15, hipY - h * 0.1, 400, 620, 5, INK);
-  cv.line(400, 620, 380, 830, 2, [255, 220, 150], 200);
-  cv.disc(380, 830, 5, [255, 220, 150]);
+  drawPerson(cv, 452, 1000, 1.2, 'rod');
+  // gulls
+  for (const [gx, gy, gs] of [[180, 300, 14], [260, 260, 11], [640, 330, 12]]) {
+    cv.line(gx - gs, gy, gx, gy - 5, 3, INK);
+    cv.line(gx, gy - 5, gx + gs, gy, 3, INK);
+  }
   return cv;
 }
 
-// ------------------------------------------------------------------ main
-mkdirSync(OUT_DIR, { recursive: true });
-for (const [name, scene] of [
-  ['boulevard.png', boulevard],
-  ['pier.png', pier],
-]) {
-  const png = encodePng(scene());
-  writeFileSync(join(OUT_DIR, name), png);
-  console.log(name, png.length, 'bytes');
+for (const [name, scene] of [['boulevard', boulevard], ['pier', pier]]) {
+  const cv = scene();
+  const png = encodePNG(cv.w, cv.h, cv.buf);
+  writeFileSync(join(outDir, `${name}.png`), png);
+  console.log(`${name}.png ${cv.w}x${cv.h} ${png.length} bytes`);
 }

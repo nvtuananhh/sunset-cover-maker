@@ -1,103 +1,107 @@
-// main.ts — hands Sunset Cover Maker in: copies app/ + screenshots/ into
-// the output directory and writes dossier.json + manifest.json there.
-//
-//   MAKEFUN_OUTPUT_DIR=out node main.ts
-// Outside the grader MAKEFUN_OUTPUT_DIR stands in for /output; inside it,
-// /output is the default. Node 22 standard library only, no install step,
-// deterministic: two runs write the same bytes (the manifest's build time
-// is the one field that moves, and it is recorded, not compared).
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// main.ts — Sunset Cover Maker hand-in program (Node 22, stdlib only).
+// Validates the app, checks the screenshots, copies app/ + screenshots/ to
+// the output directory and writes dossier.json via the kit's buildDossier.
+// Deterministic: the manifest's build time is the HEAD commit's time, so two
+// runs over the same commit write byte-identical output.
 import { buildDossier } from './vendor/makefun-app.ts';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = resolve(process.env.MAKEFUN_OUTPUT_DIR || '/output');
-const APP_DIR = join(REPO_ROOT, 'app');
-const SHOTS_DIR = join(REPO_ROOT, 'screenshots');
-const MAX_SHOT_BYTES = 262144;
+const ROOT = join(dirname(fileURLToPath(import.meta.url)));
+const OUT = process.env.MAKEFUN_OUTPUT_DIR || '/output';
+const MAX_SCREENSHOT_BYTES = 256 * 1024;
+const MAX_INDEX_BYTES = 1024 * 1024;
 
-/** Every file under a directory, relative POSIX paths, sorted. */
-function listFiles(dir: string, base = ''): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
-    const rel = base === '' ? entry.name : `${base}/${entry.name}`;
-    if (entry.isDirectory()) out.push(...listFiles(join(dir, entry.name), rel));
-    else if (entry.isFile()) out.push(rel);
-  }
-  return out;
+function fail(message: string): never {
+  throw new Error(`main.ts: ${message}`);
 }
 
-/** The repo's HEAD sha, or 'unknown' when git cannot answer. */
 function gitHead(): string {
   try {
-    return execSync('git rev-parse HEAD', { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
   } catch {
     return 'unknown';
   }
 }
 
+function gitCommitTime(): string {
+  try {
+    return execSync('git log -1 --format=%cI', { cwd: ROOT, encoding: 'utf8' }).trim();
+  } catch {
+    return new Date(0).toISOString();
+  }
+}
+
+function listFiles(dir: string, base: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    const rel = base ? `${base}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) out.push(...listFiles(full, rel));
+    else if (entry.isFile()) out.push(rel);
+    else fail(`app/${rel}: not a plain file`);
+  }
+  return out.sort();
+}
+
+function copyTree(srcDir: string, dstDir: string): string[] {
+  mkdirSync(dstDir, { recursive: true });
+  const files = listFiles(srcDir, '');
+  for (const rel of files) {
+    const dst = join(dstDir, rel);
+    mkdirSync(dirname(dst), { recursive: true });
+    copyFileSync(join(srcDir, rel), dst);
+  }
+  return files;
+}
+
 function main(): void {
-  // --- validate the inputs before writing anything -----------------------
-  if (!existsSync(APP_DIR) || !statSync(APP_DIR).isDirectory()) {
-    throw new Error('main.ts: app/ is missing: the entry is a directory of static files');
-  }
-  const indexHtml = join(APP_DIR, 'index.html');
-  if (!existsSync(indexHtml) || !statSync(indexHtml).isFile()) {
-    throw new Error('main.ts: app/index.html is missing');
-  }
-  if (!existsSync(SHOTS_DIR) || !statSync(SHOTS_DIR).isDirectory()) {
-    throw new Error('main.ts: screenshots/ is missing');
-  }
-  const shots = listFiles(SHOTS_DIR).filter((f) => !f.startsWith('.'));
-  if (shots.length < 3 || shots.length > 4) {
-    throw new Error(`main.ts: screenshots/ holds ${shots.length} images, need 3 or 4`);
-  }
-  for (const shot of shots) {
-    const bytes = statSync(join(SHOTS_DIR, shot)).size;
-    if (bytes > MAX_SHOT_BYTES) {
-      throw new Error(`main.ts: screenshots/${shot} is ${bytes} bytes, over the ${MAX_SHOT_BYTES} allowed`);
-    }
+  const appDir = join(ROOT, 'app');
+  const shotsDir = join(ROOT, 'screenshots');
+  if (!existsSync(appDir) || !statSync(appDir).isDirectory()) fail('app/ is missing');
+  const indexPath = join(appDir, 'index.html');
+  if (!existsSync(indexPath)) fail('app/index.html is missing');
+  if (statSync(indexPath).size > MAX_INDEX_BYTES) fail('app/index.html is over 1 MiB');
+
+  if (!existsSync(shotsDir) || !statSync(shotsDir).isDirectory()) fail('screenshots/ is missing');
+  const shots = readdirSync(shotsDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && !e.name.startsWith('.'))
+    .map((e) => e.name)
+    .sort();
+  if (shots.length < 3 || shots.length > 4) fail(`screenshots/ holds ${shots.length} images, need 3 or 4`);
+  for (const name of shots) {
+    const st = statSync(join(shotsDir, name));
+    if (st.size > MAX_SCREENSHOT_BYTES) fail(`screenshots/${name} is ${st.size} bytes, over 256 KiB`);
+    const magic = readFileSync(join(shotsDir, name)).subarray(0, 3);
+    const isJpeg = magic[0] === 0xff && magic[1] === 0xd8 && magic[2] === 0xff;
+    const isPng = magic[0] === 0x89 && magic[1] === 0x50 && magic[2] === 0x4e;
+    if (!isJpeg && !isPng) fail(`screenshots/${name} is neither JPEG nor PNG`);
   }
 
-  // --- copy the app and its screenshots ----------------------------------
-  mkdirSync(OUT_DIR, { recursive: true });
-  cpSync(APP_DIR, join(OUT_DIR, 'app'), { recursive: true });
-  cpSync(SHOTS_DIR, join(OUT_DIR, 'screenshots'), { recursive: true });
+  mkdirSync(OUT, { recursive: true });
+  const appFiles = copyTree(appDir, join(OUT, 'app'));
+  copyTree(shotsDir, join(OUT, 'screenshots'));
 
-  // --- manifest: file list + sizes + git HEAD + build time ---------------
-  const appFiles = listFiles(join(OUT_DIR, 'app')).map((p) => ({
-    path: `app/${p}`,
-    bytes: statSync(join(OUT_DIR, 'app', p)).size,
-  }));
-  const shotFiles = shots.map((p) => ({
-    path: `screenshots/${p}`,
-    bytes: statSync(join(OUT_DIR, 'screenshots', p)).size,
-  }));
   const manifest = {
-    title: 'Sunset Cover Maker',
+    app: 'Sunset Cover Maker',
     competition: 'gta6-cover-art-01',
     gitHead: gitHead(),
-    builtAt: new Date().toISOString(),
-    files: [...appFiles, ...shotFiles],
-    totalBytes: [...appFiles, ...shotFiles].reduce((n, f) => n + f.bytes, 0),
+    buildTime: gitCommitTime(),
+    files: appFiles.map((rel) => ({ path: `app/${rel}`, bytes: statSync(join(appDir, rel)).size })),
+    screenshots: shots.map((name) => ({ path: `screenshots/${name}`, bytes: statSync(join(shotsDir, name)).size })),
   };
-  writeFileSync(join(OUT_DIR, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  writeFileSync(join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 
-  // --- dossier: byte-for-byte what the kit library writes ----------------
-  const dossier = buildDossier(OUT_DIR, {
+  const dossier = buildDossier(OUT, {
     text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: MAX_SHOT_BYTES },
+    screenshots: { max: 4, max_bytes: 262144 },
     app_max_files: 993,
     app_max_bytes: 50331648,
-    app_path_max_bytes: 1000,
   });
-  writeFileSync(join(OUT_DIR, 'dossier.json'), dossier);
-
-  console.log(`Sunset Cover Maker -> ${OUT_DIR}`);
-  console.log(`  app files: ${appFiles.length}, screenshots: ${shotFiles.length}, git HEAD ${manifest.gitHead}`);
-  console.log(`  dossier.json: ${dossier.length} bytes, manifest.json written`);
+  writeFileSync(join(OUT, 'dossier.json'), dossier);
+  console.log(`main.ts: wrote ${OUT} (app ${appFiles.length} files, ${shots.length} screenshots, dossier ${dossier.length} bytes)`);
 }
 
 main();

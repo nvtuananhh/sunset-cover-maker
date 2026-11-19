@@ -1,23 +1,36 @@
-// app/js/samples.js — the two built-in sample photos, so the app works with
-// zero uploads. Both are original sunset scenes drawn in code by
-// tools/make-samples.mjs (gradient sky, skyline, palms, a person silhouette:
-// no real-person photo, no game art).
-import { loadPhotoUrl } from './photos.js';
+// samples.js — the two built-in sample photos (code-drawn originals, generated
+// by tools/make-samples.mjs). Loads them as images so the app works with zero
+// uploads and so screenshots have a deterministic scene.
+(function () {
+  'use strict';
 
-export const SAMPLE_PHOTOS = [
-  { src: 'samples/boulevard.png', name: 'Boulevard Sunset', label: 'Boulevard — person on a sunset street' },
-  { src: 'samples/pier.png', name: 'Pier Dusk', label: 'Pier — angler at dusk' },
-];
+  var SAMPLE_DEFS = [
+    { name: 'boulevard', label: 'Boulevard sunset', src: 'samples/boulevard.png' },
+    { name: 'pier', label: 'Pier at dusk', src: 'samples/pier.png' },
+  ];
 
-/** Load both sample photos as photo records. */
-export async function loadSamplePhotos() {
-  const photos = [];
-  for (const sample of SAMPLE_PHOTOS) {
-    try {
-      photos.push(await loadPhotoUrl(sample.src, sample.name));
-    } catch (err) {
-      console.warn('[samples]', err.message);
-    }
+  function loadImage(src) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { reject(new Error('cannot load ' + src)); };
+      img.src = src;
+    });
   }
-  return photos;
-}
+
+  // Loads every sample photo. Resolves to [{img, label, name}] in definition
+  // order. A failed sample is skipped, never fatal.
+  function loadSamples() {
+    return Promise.all(SAMPLE_DEFS.map(function (def) {
+      return loadImage(def.src).then(function (img) {
+        return { img: img, label: def.label, name: def.name, sample: true };
+      }).catch(function () { return null; });
+    })).then(function (loaded) {
+      return loaded.filter(function (p) { return p !== null; });
+    });
+  }
+
+  window.SCM = window.SCM || {};
+  window.SCM.loadSamples = loadSamples;
+  window.SCM.sampleDefs = SAMPLE_DEFS;
+})();
