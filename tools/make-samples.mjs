@@ -220,13 +220,17 @@ function skyline(cv, rnd, base, minH, maxH) {
 function palm(cv, x, y, h, lean, rnd) {
   const topX = x + lean;
   const topY = y - h;
-  // Trunk as a tapering chain of discs.
+  // Trunk as a tapering polyline so it reads as one solid curve.
   const steps = 24;
-  for (let s = 0; s <= steps; s++) {
+  let px = x;
+  let py = y;
+  for (let s = 1; s <= steps; s++) {
     const t = s / steps;
-    const px = x + lean * t * t + Math.sin(t * 2.2) * 6;
-    const py = y - h * t;
-    cv.disc(px, py, Math.max(3, 9 - t * 5), INK);
+    const nx = x + lean * t * t + Math.sin(t * 2.2) * 6;
+    const ny = y - h * t;
+    cv.line(px, py, nx, ny, Math.max(5, 15 - t * 9), INK);
+    px = nx;
+    py = ny;
   }
   // Fronds: arcs of short segments drooping from the crown.
   for (let f = 0; f < 8; f++) {
@@ -250,44 +254,40 @@ function palm(cv, x, y, h, lean, rnd) {
 }
 
 // A standing person silhouette, facing the viewer, one hand on hip.
+// Proportions: head ~1/7.5 of height, slim tapered torso, legs to baseY.
 function person(cv, cx, baseY, h) {
-  const headR = h * 0.085;
+  const headR = h * 0.075;
   const headY = baseY - h + headR;
-  // Hair: a swept bob.
-  cv.ellipse(cx, headY - headR * 0.15, headR * 1.08, headR * 1.05, INK);
-  cv.poly(
-    [
-      [cx - headR * 1.1, headY],
-      [cx - headR * 1.25, headY + h * 0.1],
-      [cx - headR * 0.7, headY + h * 0.06],
-      [cx + headR * 0.7, headY + h * 0.06],
-      [cx + headR * 1.25, headY + h * 0.1],
-      [cx + headR * 1.1, headY],
-    ],
-    INK,
-  );
+  const shoulderY = headY + headR * 1.5;
+  const hipY = baseY - h * 0.28;
+  // Hair: a simple cap over the head.
+  cv.ellipse(cx, headY - headR * 0.3, headR * 1.05, headR * 0.9, INK);
   // Face opening (skin-tone shadow, keeps it a silhouette portrait).
-  cv.ellipse(cx, headY + headR * 0.12, headR * 0.72, headR * 0.8, [58, 26, 44]);
+  cv.ellipse(cx, headY + headR * 0.15, headR * 0.68, headR * 0.72, [58, 26, 44]);
   // Sunglasses glint.
-  cv.fillRect(Math.round(cx - headR * 0.55), Math.round(headY - headR * 0.05), Math.round(headR * 1.1), Math.round(headR * 0.3), [255, 214, 130], 220);
-  // Neck + torso (open shirt, wide shoulders).
-  const shoulderY = baseY - h * 0.78;
+  cv.fillRect(Math.round(cx - headR * 0.52), Math.round(headY - headR * 0.02), Math.round(cx + headR * 0.52), Math.round(headY + headR * 0.26), [255, 214, 130], 220);
+  // Neck: wide enough to join head and shoulders with no gap.
+  cv.fillRect(Math.round(cx - headR * 0.28), Math.round(headY + headR * 0.6), Math.round(cx + headR * 0.28), Math.round(shoulderY + 4), INK);
+  // Torso: shoulders -> waist -> hips, slim taper.
   cv.poly(
     [
-      [cx - h * 0.055, shoulderY - h * 0.04],
-      [cx + h * 0.055, shoulderY - h * 0.04],
-      [cx + h * 0.16, baseY],
-      [cx - h * 0.16, baseY],
+      [cx - h * 0.095, shoulderY],
+      [cx + h * 0.095, shoulderY],
+      [cx + h * 0.075, hipY - h * 0.06],
+      [cx + h * 0.085, hipY],
+      [cx - h * 0.085, hipY],
+      [cx - h * 0.075, hipY - h * 0.06],
     ],
     INK,
   );
-  // Arms: left arm down, right arm bent to hip.
-  cv.line(cx - h * 0.15, shoulderY + h * 0.05, cx - h * 0.19, baseY - h * 0.12, h * 0.05, INK);
-  cv.line(cx + h * 0.15, shoulderY + h * 0.05, cx + h * 0.24, baseY - h * 0.3, h * 0.05, INK);
-  cv.line(cx + h * 0.24, baseY - h * 0.3, cx + h * 0.13, baseY - h * 0.24, h * 0.05, INK);
-  // Legs.
-  cv.line(cx - h * 0.07, baseY, cx - h * 0.09, baseY + h * 0.32, h * 0.055, INK);
-  cv.line(cx + h * 0.07, baseY, cx + h * 0.1, baseY + h * 0.32, h * 0.055, INK);
+  // Left arm hanging close to the body.
+  cv.line(cx - h * 0.105, shoulderY + h * 0.03, cx - h * 0.12, hipY + h * 0.02, h * 0.038, INK);
+  // Right arm bent, hand on hip.
+  cv.line(cx + h * 0.105, shoulderY + h * 0.03, cx + h * 0.15, hipY - h * 0.1, h * 0.038, INK);
+  cv.line(cx + h * 0.15, hipY - h * 0.1, cx + h * 0.085, hipY - h * 0.04, h * 0.038, INK);
+  // Legs with a visible gap, feet on the ground line.
+  cv.line(cx - h * 0.045, hipY, cx - h * 0.06, baseY, h * 0.042, INK);
+  cv.line(cx + h * 0.045, hipY, cx + h * 0.06, baseY, h * 0.042, INK);
 }
 
 // ------------------------------------------------------------------ scene 1: boulevard
@@ -302,11 +302,11 @@ function boulevard() {
     [1, [255, 205, 110]],
   ]);
   stars(cv, rnd, 70, 380);
-  // Sun + glow, low over the skyline.
-  cv.glow(540, 880, 420, [255, 150, 80], 120);
-  cv.glow(540, 880, 260, [255, 190, 110], 150);
-  cv.disc(540, 880, 150, [255, 224, 150]);
-  cv.disc(540, 880, 132, [255, 238, 190]);
+  // Sun + glow, low over the skyline, right of centre.
+  cv.glow(760, 870, 420, [255, 150, 80], 120);
+  cv.glow(760, 870, 260, [255, 190, 110], 150);
+  cv.disc(760, 870, 150, [255, 224, 150]);
+  cv.disc(760, 870, 132, [255, 238, 190]);
   skyline(cv, rnd, 1010, 180, 420);
   // Street: dark asphalt with a warm centre reflection.
   cv.fillRect(0, 1010, W, H, DARK);
@@ -322,7 +322,7 @@ function boulevard() {
   }
   palm(cv, 92, 1040, 430, 46, rnd);
   palm(cv, 1005, 1050, 380, -40, rnd);
-  person(cv, 540, 1010, 560);
+  person(cv, 400, 1010, 470);
   return cv;
 }
 
@@ -376,29 +376,36 @@ function pier() {
   const cx = 660;
   const baseY = 1010;
   const h = 520;
-  const headR = h * 0.085;
+  const headR = h * 0.075;
   const headY = baseY - h + headR;
+  const shoulderY = headY + headR * 1.5;
+  const hipY = baseY - h * 0.28;
   cv.ellipse(cx, headY, headR, headR, INK);
   // Bucket hat.
   cv.ellipse(cx, headY - headR * 0.55, headR * 1.25, headR * 0.42, INK);
-  cv.fillRect(Math.round(cx - headR * 1.25), Math.round(headY - headR * 0.62), Math.round(headR * 2.5), Math.round(headR * 0.3), INK);
+  cv.fillRect(Math.round(cx - headR * 1.25), Math.round(headY - headR * 0.62), Math.round(cx + headR * 1.25), Math.round(headY - headR * 0.32), INK);
+  // Neck: joins head and shoulders with no gap.
+  cv.fillRect(Math.round(cx - headR * 0.28), Math.round(headY + headR * 0.6), Math.round(cx + headR * 0.28), Math.round(shoulderY + 4), INK);
+  // Slim tapered torso.
   cv.poly(
     [
-      [cx - h * 0.05, baseY - h * 0.8],
-      [cx + h * 0.05, baseY - h * 0.8],
-      [cx + h * 0.15, baseY],
-      [cx - h * 0.15, baseY],
+      [cx - h * 0.095, shoulderY],
+      [cx + h * 0.095, shoulderY],
+      [cx + h * 0.075, hipY - h * 0.06],
+      [cx + h * 0.085, hipY],
+      [cx - h * 0.085, hipY],
+      [cx - h * 0.075, hipY - h * 0.06],
     ],
     INK,
   );
-  cv.line(cx - h * 0.14, baseY - h * 0.72, cx - h * 0.18, baseY - h * 0.1, h * 0.05, INK);
-  cv.line(cx + h * 0.14, baseY - h * 0.72, cx + h * 0.2, baseY - h * 0.42, h * 0.05, INK);
-  cv.line(cx - h * 0.07, baseY, cx - h * 0.09, baseY + h * 0.3, h * 0.055, INK);
-  cv.line(cx + h * 0.07, baseY, cx + h * 0.1, baseY + h * 0.3, h * 0.055, INK);
-  // Fishing rod + line arcing to the water.
-  cv.line(cx + h * 0.2, baseY - h * 0.42, 180, 700, 5, INK);
-  cv.line(180, 700, 240, 830, 2, [255, 220, 150], 200);
-  cv.disc(240, 830, 5, [255, 220, 150]);
+  cv.line(cx - h * 0.105, shoulderY + h * 0.03, cx - h * 0.12, hipY + h * 0.02, h * 0.038, INK);
+  cv.line(cx + h * 0.105, shoulderY + h * 0.03, cx + h * 0.15, hipY - h * 0.1, h * 0.038, INK);
+  cv.line(cx - h * 0.045, hipY, cx - h * 0.06, baseY, h * 0.042, INK);
+  cv.line(cx + h * 0.045, hipY, cx + h * 0.06, baseY, h * 0.042, INK);
+  // Fishing rod held up at 45 deg, line dropping to the water.
+  cv.line(cx + h * 0.15, hipY - h * 0.1, 400, 620, 5, INK);
+  cv.line(400, 620, 380, 830, 2, [255, 220, 150], 200);
+  cv.disc(380, 830, 5, [255, 220, 150]);
   return cv;
 }
 
