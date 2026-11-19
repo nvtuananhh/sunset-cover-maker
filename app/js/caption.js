@@ -36,25 +36,44 @@ export function titleSize(W, H, caption) {
  * canvas with a small margin — the caption can never run off the cover.
  */
 export function measureCaptionBlock(ctx, W, H, caption) {
-  const size = titleSize(W, H, caption);
-  const subSize = Math.max(10, Math.round(size * 0.26));
-  const tagSize = Math.max(9, Math.round(size * 0.17));
-  const gap1 = size * 0.18;
-  const gap2 = size * 0.22;
+  const margin = Math.min(W, H) * 0.03;
+  const maxW = W - margin * 2;
+  let size = titleSize(W, H, caption);
   ctx.save();
   ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
   try {
     ctx.letterSpacing = `${size * caption.spacing}px`;
   } catch (_) {}
-  const titleW = ctx.measureText(caption.title.toUpperCase()).width;
+  let titleW = ctx.measureText(caption.title.toUpperCase()).width;
+  // A long title must shrink to fit, never run off the cover.
+  while (titleW > maxW && size > 12) {
+    size = Math.max(12, Math.round(size * 0.92));
+    ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
+    try {
+      ctx.letterSpacing = `${size * caption.spacing}px`;
+    } catch (_) {}
+    titleW = ctx.measureText(caption.title.toUpperCase()).width;
+  }
+  const subSize = Math.max(10, Math.round(size * 0.26));
+  let tagSize = Math.max(9, Math.round(size * 0.17));
+  const gap1 = size * 0.18;
+  const gap2 = size * 0.22;
   ctx.font = `600 ${subSize}px Inter, system-ui, sans-serif`;
+  try {
+    ctx.letterSpacing = '0px';
+  } catch (_) {}
   const subW = caption.subtitle ? ctx.measureText(caption.subtitle).width : 0;
+  // The tag line is tracked out, so measure it glyph by glyph.
   ctx.font = `700 ${tagSize}px Inter, system-ui, sans-serif`;
-  const tagW = caption.tagline ? ctx.measureText(spacedText(caption.tagline.toUpperCase())).width : 0;
+  let tagW = caption.tagline ? spacedTagWidth(ctx, caption.tagline.toUpperCase(), tagSize * 0.32) : 0;
+  while (tagW > maxW && tagSize > 8) {
+    tagSize = Math.max(8, Math.round(tagSize * 0.92));
+    ctx.font = `700 ${tagSize}px Inter, system-ui, sans-serif`;
+    tagW = spacedTagWidth(ctx, caption.tagline.toUpperCase(), tagSize * 0.32);
+  }
   ctx.restore();
   const w = Math.max(titleW, subW, tagW);
   const h = size + gap1 + subSize + gap2 + tagSize;
-  const margin = Math.min(W, H) * 0.03;
   const cx = caption.x * W;
   const cy = caption.y * H;
   const x = Math.min(Math.max(cx - w / 2, margin), W - margin - w);
@@ -62,9 +81,27 @@ export function measureCaptionBlock(ctx, W, H, caption) {
   return { x, y, w, h, size, subSize, tagSize, gap1, gap2 };
 }
 
-/** Insert hair spaces between letters for a tracked-out tag line. */
-function spacedText(text) {
-  return text.split('').join('  ');
+/** Width of a tracked-out tag line, measured glyph by glyph (canvas
+ * measureText does not reliably include letterSpacing, so we add the
+ * tracking ourselves: advance per glyph + tracking between glyphs). */
+function spacedTagWidth(ctx, text, tracking) {
+  let w = 0;
+  for (const ch of text) w += ctx.measureText(ch).width;
+  return w + tracking * Math.max(0, text.length - 1);
+}
+
+/** Draw a tracked-out tag line centred on cx, returning its pixel width. */
+function drawSpacedTag(ctx, text, cx, y, tracking) {
+  const total = spacedTagWidth(ctx, text, tracking);
+  let x = cx - total / 2;
+  ctx.save();
+  ctx.textAlign = 'left';
+  for (const ch of text) {
+    ctx.fillText(ch, x, y);
+    x += ctx.measureText(ch).width + tracking;
+  }
+  ctx.restore();
+  return total;
 }
 
 /** Fill text with a solid colour or a vertical gradient across the block. */
@@ -142,12 +179,11 @@ export function drawCaption(ctx, W, H, caption, layoutId) {
   // Tag line: tracked-out caps with rules on either side.
   if (caption.tagline) {
     y += gap2 + tagSize;
-    const tag = spacedText(caption.tagline.toUpperCase());
+    const tag = caption.tagline.toUpperCase();
+    const tracking = tagSize * 0.32;
     ctx.font = `700 ${tagSize}px Inter, system-ui, sans-serif`;
-    try {
-      ctx.letterSpacing = `${tagSize * 0.32}px`;
-    } catch (_) {}
-    const tagW = ctx.measureText(tag).width;
+    ctx.fillStyle = preset.gradient ? preset.gradient[0] : preset.fill;
+    const tagW = drawSpacedTag(ctx, tag, cx, y, tracking);
     const ruleY = y - tagSize * 0.32;
     const ruleGap = tagSize * 0.9;
     ctx.strokeStyle = 'rgba(255,247,237,0.85)';
@@ -158,8 +194,6 @@ export function drawCaption(ctx, W, H, caption, layoutId) {
     ctx.moveTo(cx + tagW / 2 + ruleGap, ruleY);
     ctx.lineTo(cx + tagW / 2 + ruleGap + tagSize * 2.4, ruleY);
     ctx.stroke();
-    ctx.fillStyle = preset.gradient ? preset.gradient[0] : preset.fill;
-    ctx.fillText(tag, cx, y);
   }
   ctx.restore();
 }
