@@ -276,11 +276,12 @@
         exportStatus.textContent = 'Sample photos could not be loaded.';
         return;
       }
-      // Keep user uploads first; samples append after them.
+      // Keep user uploads first; samples append after them. Panels take
+      // alternating photos so neighbouring panels never repeat the same shot.
       var base = state.photos.length;
       state.photos = state.photos.concat(samples);
       state.panels.forEach(function (p, i) {
-        p.photo = Math.min(base + i, state.photos.length - 1);
+        p.photo = (base + i) % state.photos.length;
       });
       markStepDone(1);
       refreshPhotoStrip();

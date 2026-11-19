@@ -237,7 +237,7 @@ function boulevard() {
   drawPalm(cv, 96, 900, 1.15, 26);
   drawPalm(cv, 812, 940, 1.3, -30);
   drawPalm(cv, 700, 760, 0.7, 14);
-  drawPerson(cv, 470, 1010, 1.25, 'hip');
+  drawPerson(cv, 440, 880, 1.35, 'hip');
   // foreground vignette
   cv.rect(0, 1040, W, H, [20, 6, 30], 90);
   return cv;
@@ -279,7 +279,7 @@ function pier() {
     cv.glow(lx, ly - 128, 46, [255, 190, 120], 0.8);
     cv.circle(lx, ly - 128, 10, [255, 220, 160]);
   }
-  drawPerson(cv, 452, 1000, 1.2, 'rod');
+  drawPerson(cv, 452, 880, 1.3, 'rod');
   // gulls
   for (const [gx, gy, gs] of [[180, 300, 14], [260, 260, 11], [640, 330, 12]]) {
     cv.line(gx - gs, gy, gx, gy - 5, 3, INK);
