@@ -1,55 +1,47 @@
-// Photo library: built-in samples plus user uploads. Uploads are read with
-// FileReader on the user's own machine and never leave it.
-import { SAMPLE_PHOTOS } from './samples.js';
+// photos.js — photo loading, caching, and uploads (local only, FileReader).
+// No network: every photo is a file under app/ or a data: URI from the
+// user's own machine. No wall-clock or randomness in this file.
+(function () {
+  'use strict';
 
-export const photoLibrary = [];
-let uploadCounter = 0;
+  var cache = new Map();
 
-/** Fill the library with the built-in samples (src paths, loaded lazily). */
-export function seedLibrary() {
-  photoLibrary.length = 0;
-  for (const p of SAMPLE_PHOTOS) {
-    photoLibrary.push({ id: p.id, label: p.label, src: p.src, focusX: p.focusX, focusY: p.focusY, role: p.role, uploaded: false, img: null });
+  /** Load an image by URL or data: URI; cached, so repeat renders reuse it. */
+  function loadImage(src) {
+    if (cache.has(src)) return cache.get(src);
+    var p = new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { reject(new Error('cannot load photo: ' + src.slice(0, 80))); };
+      img.src = src;
+    });
+    cache.set(src, p);
+    return p;
   }
-  return photoLibrary;
-}
 
-/** Load the image element for one library entry (cached on the entry). */
-export function loadPhotoImage(entry) {
-  if (entry.img) return Promise.resolve(entry.img);
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => { entry.img = img; resolve(img); };
-    img.onerror = () => resolve(null);
-    img.src = entry.src;
-  });
-}
+  /** Load every photo the current state references, in fixed order. */
+  function loadAllPhotos(state) {
+    var srcs = [];
+    var seen = new Set();
+    state.panels.forEach(function (panel) {
+      if (panel.photo && !seen.has(panel.photo)) { seen.add(panel.photo); srcs.push(panel.photo); }
+    });
+    return Promise.all(srcs.map(loadImage)).then(function () { return true; });
+  }
 
-/** Read uploaded files into the library as data: URIs; returns added entries. */
-export function addUploads(fileList) {
-  const files = Array.from(fileList || []).filter((f) => f.type && f.type.indexOf('image/') === 0);
-  const jobs = files.map((file) => new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      uploadCounter += 1;
-      const entry = { id: 'upload-' + uploadCounter, label: file.name.replace(/\.[^.]+$/, '').slice(0, 18) || 'Upload', src: String(reader.result), focusX: 0.5, focusY: 0.35, role: 'THE CREW', uploaded: true, img: null };
-      photoLibrary.push(entry);
-      resolve(entry);
-    };
-    reader.onerror = () => resolve(null);
-    reader.readAsDataURL(file);
-  }));
-  return Promise.all(jobs).then((list) => list.filter(Boolean));
-}
+  /** Read user-picked files as data: URIs, in the order the picker gave them. */
+  function readUploads(fileList) {
+    var files = Array.prototype.slice.call(fileList || []);
+    var images = files.filter(function (f) { return f.type.indexOf('image/') === 0; });
+    return Promise.all(images.map(function (file) {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function () { resolve({ id: 'up-' + file.name, src: String(reader.result), label: file.name.replace(/\.[^.]+$/, '').slice(0, 20) || 'Upload' }); };
+        reader.onerror = function () { reject(new Error('cannot read ' + file.name)); };
+        reader.readAsDataURL(file);
+      });
+    }));
+  }
 
-/** Remove an uploaded entry from the library (samples cannot be removed). */
-export function removeUpload(entryId) {
-  const i = photoLibrary.findIndex((p) => p.id === entryId && p.uploaded);
-  if (i >= 0) photoLibrary.splice(i, 1);
-  return i >= 0;
-}
-
-/** Find a library entry by id. */
-export function findPhoto(photoId) {
-  return photoLibrary.find((p) => p.id === photoId) || null;
-}
+  window.SunsetPhotos = { loadImage: loadImage, loadAllPhotos: loadAllPhotos, readUploads: readUploads };
+})();

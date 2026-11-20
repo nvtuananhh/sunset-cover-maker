@@ -1,180 +1,176 @@
-// Caption rendering: the huge chrome title, the slanted script subtitle
-// and the tagline pill. All poster type is drawn on the canvas (gradient
-// fill + stroke + shadow) so the export matches the preview exactly.
-// System fonts only — no font files anywhere in the repo.
-export const TITLE_FONTS = '"Noto Sans Condensed Black", "Noto Sans", "Arial Narrow", sans-serif';
-export const SCRIPT_FONTS = 'italic 700 Georgia, "Times New Roman", serif';
-export const UI_FONTS = '"Noto Sans", "DejaVu Sans", Arial, sans-serif';
+// caption.js — the big caption lettering: chrome title (gradient fill,
+// thick outline, offset shadow; Chrome / Striped retro / Neon outline),
+// slanted script subtitle, and the tagline pill. All type is drawn on the
+// canvas with system fonts, so export matches preview exactly.
+(function () {
+  'use strict';
 
-export const TITLE_COLOURS = {
-  sunset: ['#ffe95c', '#ffb347', '#ff7a18', '#ff2e88', '#8b2eff'],
-  gold: ['#fff6c8', '#ffd23c', '#ff9a1a', '#c97b00', '#7a4a00'],
-  ice: ['#ffffff', '#d8ecff', '#9fc8ee', '#5c8fc9', '#2e5c8a'],
-  pink: ['#ffd6f2', '#ff9ad9', '#ff2e88', '#c9186e', '#7b0f4d'],
-};
+  var TITLE_FAMILY = "'Noto Sans Condensed', 'Noto Sans', 'Arial Narrow', sans-serif";
+  var SCRIPT_FAMILY = "italic 700 Georgia, 'DejaVu Serif', 'Times New Roman', serif";
 
-/** Measure a tracked (letter-spaced) string by hand: canvas has no
- *  letterSpacing in every build, so we draw glyph by glyph. */
-export function trackedWidth(ctx, text, tracking) {
-  let w = 0;
-  for (const ch of text) w += ctx.measureText(ch).width + tracking;
-  return w - tracking;
-}
-
-/** Draw one line of tracked text, centred on cx. Returns the drawn width. */
-export function drawTracked(ctx, text, cx, y, tracking) {
-  const widths = [];
-  let total = 0;
-  for (const ch of text) {
-    const w = ctx.measureText(ch).width;
-    widths.push(w);
-    total += w + tracking;
-  }
-  total -= tracking;
-  let x = cx - total / 2;
-  for (let i = 0; i < text.length; i++) {
-    ctx.fillText(text[i], x, y);
-    x += widths[i] + tracking;
-  }
-  return total;
-}
-
-/** Stroke the same tracked line (used for the title outline pass). */
-export function strokeTracked(ctx, text, cx, y, tracking) {
-  const widths = [];
-  let total = 0;
-  for (const ch of text) {
-    const w = ctx.measureText(ch).width;
-    widths.push(w);
-    total += w + tracking;
-  }
-  total -= tracking;
-  let x = cx - total / 2;
-  for (let i = 0; i < text.length; i++) {
-    ctx.strokeText(text[i], x, y);
-    x += widths[i] + tracking;
-  }
-  return total;
-}
-
-/** The huge chrome title. `box` is {cx, y, width} in canvas pixels. */
-export function drawChromeTitle(ctx, state, box) {
-  const title = (state.title || 'SUNSET CITY').toUpperCase();
-  const colours = TITLE_COLOURS[state.titleColour] || TITLE_COLOURS.sunset;
-  const size = Math.round(box.width * 0.115 * state.titleSize);
-  const tracking = size * state.tracking;
-  ctx.save();
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  ctx.font = '900 ' + size + 'px ' + TITLE_FONTS;
-  // Fit: shrink until the tracked title fits the box.
-  let fitSize = size;
-  while (fitSize > size * 0.45 && trackedWidth(ctx, title, tracking) > box.width) {
-    fitSize = Math.round(fitSize * 0.94);
-    ctx.font = '900 ' + fitSize + 'px ' + TITLE_FONTS;
-  }
-  const grad = ctx.createLinearGradient(0, box.y - fitSize * 0.85, 0, box.y + fitSize * 0.18);
-  colours.forEach((c, i) => grad.addColorStop(i / (colours.length - 1), c));
-  const shadowOff = Math.max(4, Math.round(fitSize * 0.07));
-  if (state.titleStyle === 'neon') {
-    // Neon outline: dark fill, hot-pink stroke, pink glow.
-    ctx.shadowColor = '#ff2e88';
-    ctx.shadowBlur = Math.round(fitSize * 0.28);
-    ctx.lineWidth = Math.max(2, Math.round(fitSize * 0.045));
-    ctx.strokeStyle = '#ff5ca8';
-    ctx.fillStyle = '#1a0512';
-    strokeTracked(ctx, title, box.cx, box.y, tracking);
-    drawTracked(ctx, title, box.cx, box.y, tracking);
-    ctx.shadowBlur = 0;
-    ctx.lineWidth = Math.max(1, Math.round(fitSize * 0.015));
-    ctx.strokeStyle = '#ffffff';
-    strokeTracked(ctx, title, box.cx, box.y, tracking);
-  } else {
-    // Chrome / striped: offset dark shadow, thick dark outline, gradient fill.
-    ctx.fillStyle = 'rgba(20,2,16,0.9)';
-    ctx.save();
-    ctx.translate(shadowOff, shadowOff);
-    drawTracked(ctx, title, box.cx, box.y, tracking);
-    ctx.restore();
-    ctx.lineWidth = Math.max(3, Math.round(fitSize * 0.09));
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#16040f';
-    strokeTracked(ctx, title, box.cx, box.y, tracking);
-    ctx.fillStyle = grad;
-    drawTracked(ctx, title, box.cx, box.y, tracking);
-    if (state.titleStyle === 'striped') {
-      // Horizontal retro stripes clipped inside the letters.
-      ctx.save();
-      ctx.globalCompositeOperation = 'source-atop';
-      ctx.fillStyle = 'rgba(22,4,15,0.55)';
-      const stripeH = Math.max(3, Math.round(fitSize * 0.06));
-      const top = box.y - fitSize * 0.8;
-      for (let y = top; y < box.y + fitSize * 0.1; y += stripeH * 3) {
-        ctx.fillRect(box.cx - box.width / 2, y, box.width, stripeH);
-      }
-      ctx.restore();
+  function fitSize(ctx, text, maxWidth, size, weight, family, spacingPx) {
+    var s = size;
+    while (s > 12) {
+      ctx.font = weight + ' ' + s + 'px ' + family;
+      if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = spacingPx + 'px';
+      if (ctx.measureText(text).width <= maxWidth) return s;
+      s = Math.floor(s * 0.94);
     }
-    // (No full-width highlight bar: a straight bar across the letters
-    // reads as a scratch over the photos. The gradient's light top
-    // stop already gives the chrome its hot edge.)
+    return s;
   }
-  ctx.restore();
-  return { size: fitSize, width: trackedWidth(ctx, title, tracking) };
-}
 
-/** Slanted script subtitle in neon pink under the title. */
-export function drawScriptSubtitle(ctx, text, cx, y, size) {
-  ctx.save();
-  ctx.font = SCRIPT_FONTS;
-  ctx.font = 'italic 700 ' + size + 'px Georgia, "Times New Roman", serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.translate(cx, y);
-  ctx.rotate(-0.045);
-  ctx.shadowColor = '#ff2e88';
-  ctx.shadowBlur = Math.round(size * 0.5);
-  ctx.fillStyle = '#ff5ca8';
-  ctx.fillText(text, 0, 0);
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#ffd6ec';
-  ctx.fillText(text, 0, -Math.max(1, size * 0.03));
-  ctx.restore();
-}
+  function titleGradient(ctx, x0, y0, x1, y1) {
+    var g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0.0, '#ffe95e');
+    g.addColorStop(0.28, '#ffb03a');
+    g.addColorStop(0.52, '#ff7a1a');
+    g.addColorStop(0.76, '#ff2e88');
+    g.addColorStop(1.0, '#b967ff');
+    return g;
+  }
 
-/** Tagline pill: dark ticket with gold letter-spaced text. */
-export function drawTaglinePill(ctx, text, cx, y, W) {
-  ctx.save();
-  const size = Math.max(13, Math.round(W * 0.016));
-  ctx.font = '700 ' + size + 'px ' + UI_FONTS;
-  const tracking = size * 0.14;
-  const w = trackedWidth(ctx, text.toUpperCase(), tracking) + size * 2.4;
-  const h = size * 2.1;
-  const x = cx - w / 2;
-  ctx.fillStyle = 'rgba(18,3,14,0.92)';
-  ctx.strokeStyle = '#ffc93c';
-  ctx.lineWidth = Math.max(1.5, W * 0.0012);
-  roundRect(ctx, x, y - h / 2, w, h, h / 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = '#ffd23c';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  drawTracked(ctx, text.toUpperCase(), cx, y + size * 0.05, tracking);
-  ctx.restore();
-  return h;
-}
+  /** Draw the huge title centred at (cx, baselineY). Returns its bounding box. */
+  function drawTitle(ctx, W, H, state) {
+    var text = (state.title || 'SUNSET').toUpperCase();
+    var cx = W / 2;
+    var maxWidth = W * 0.94;
+    var base = W * 0.155 * state.titleSize;
+    var spacing = W * state.letterSpacing;
+    var size = fitSize(ctx, text, maxWidth, base, '900', TITLE_FAMILY, spacing);
+    var baselineY = state.titleY * H;
+    var top = baselineY - size;
+    var style = state.titleStyle || 'chrome';
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineJoin = 'round';
+    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = spacing + 'px';
+    ctx.font = '900 ' + size + 'px ' + TITLE_FAMILY;
 
-/** Rounded-rectangle path helper (no Path2D dependency). */
-export function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.arcTo(x + w, y, x + w, y + r, r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-  ctx.lineTo(x + r, y + h);
-  ctx.arcTo(x, y + h, x, y + h - r, r);
-  ctx.lineTo(x, y + r);
-  ctx.arcTo(x, y, x + r, y, r);
-  ctx.closePath();
-}
+    if (style === 'neon') {
+      ctx.shadowColor = '#ff2e88';
+      ctx.shadowBlur = size * 0.22;
+      ctx.shadowOffsetY = 0;
+      ctx.strokeStyle = '#ff5db1';
+      ctx.lineWidth = Math.max(2, size * 0.028);
+      ctx.strokeText(text, cx, baselineY);
+      ctx.strokeText(text, cx, baselineY);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#1c0b2e';
+      ctx.fillText(text, cx, baselineY);
+    } else if (style === 'striped') {
+      // Offscreen so the stripes clip to the letterforms.
+      var off = document.createElement('canvas');
+      off.width = W;
+      off.height = H;
+      var o = off.getContext('2d');
+      o.textAlign = 'center';
+      o.textBaseline = 'alphabetic';
+      o.lineJoin = 'round';
+      if (typeof o.letterSpacing !== 'undefined') o.letterSpacing = spacing + 'px';
+      o.font = '900 ' + size + 'px ' + TITLE_FAMILY;
+      o.strokeStyle = '#1c0b2e';
+      o.lineWidth = Math.max(3, size * 0.06);
+      o.strokeText(text, cx, baselineY);
+      o.fillStyle = titleGradient(o, cx, top, cx, baselineY + size * 0.1);
+      o.fillText(text, cx, baselineY);
+      o.globalCompositeOperation = 'source-atop';
+      var stripeH = Math.max(3, size * 0.085);
+      o.fillStyle = 'rgba(28, 11, 46, 0.55)';
+      for (var y = top; y < baselineY + size * 0.1; y += stripeH * 2) {
+        o.fillRect(0, y, W, stripeH);
+      }
+      ctx.shadowColor = 'rgba(20, 4, 30, 0.85)';
+      ctx.shadowBlur = size * 0.03;
+      ctx.shadowOffsetY = size * 0.05;
+      ctx.drawImage(off, 0, 0);
+    } else {
+      // Chrome sunset.
+      ctx.shadowColor = 'rgba(20, 4, 30, 0.85)';
+      ctx.shadowBlur = size * 0.035;
+      ctx.shadowOffsetY = size * 0.055;
+      ctx.strokeStyle = '#1c0b2e';
+      ctx.lineWidth = Math.max(3, size * 0.06);
+      ctx.strokeText(text, cx, baselineY);
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+      ctx.fillStyle = titleGradient(ctx, cx, top, cx, baselineY + size * 0.1);
+      ctx.fillText(text, cx, baselineY);
+      // Thin hot highlight along the top of the letters.
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+      ctx.fillText(text, cx, baselineY - size * 0.012);
+    }
+    ctx.restore();
+    return { x: cx - maxWidth / 2, y: top, w: maxWidth, h: size * 1.15, size: size, baselineY: baselineY };
+  }
+
+  /** Slanted script subtitle in neon pink, just under the title. */
+  function drawSubtitle(ctx, W, H, state, titleBox) {
+    var text = state.subtitle || '';
+    if (!text) return null;
+    var size = Math.max(14, W * 0.032 * state.titleSize);
+    var y = titleBox.baselineY + size * 1.55;
+    ctx.save();
+    ctx.translate(W / 2, y);
+    ctx.rotate(-0.035);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = SCRIPT_FAMILY.replace('700', '700').replace('Georgia', 'Georgia');
+    ctx.font = 'italic 700 ' + size + 'px Georgia, \'DejaVu Serif\', \'Times New Roman\', serif';
+    ctx.shadowColor = '#ff2e88';
+    ctx.shadowBlur = size * 0.5;
+    ctx.fillStyle = '#ff7ad9';
+    ctx.fillText(text, 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ffd7ef';
+    ctx.fillText(text, 0, -size * 0.02);
+    ctx.restore();
+    return { y: y, size: size };
+  }
+
+  /** Tagline pill: dark ticket with a gold edge, centred. */
+  function drawTagline(ctx, W, H, state, subtitleBox) {
+    var text = (state.tagline || '').toUpperCase();
+    if (!text) return null;
+    var size = Math.max(11, W * 0.0165);
+    ctx.save();
+    ctx.font = '700 ' + size + 'px ' + TITLE_FAMILY;
+    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.004) + 'px';
+    var tw = ctx.measureText(text).width + size * 2.4;
+    var th = size * 2.1;
+    var y = (subtitleBox ? subtitleBox.y + subtitleBox.size : H * 0.78) + size * 1.1;
+    var x = (W - tw) / 2;
+    ctx.fillStyle = 'rgba(22, 10, 36, 0.88)';
+    ctx.strokeStyle = '#ffc93c';
+    ctx.lineWidth = Math.max(1.5, W * 0.0012);
+    roundRect(ctx, x, y, tw, th, th / 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#fff3e0';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, W / 2, y + th / 2 + size * 0.05);
+    ctx.restore();
+    return { y: y, h: th };
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  window.SunsetCaption = {
+    TITLE_FAMILY: TITLE_FAMILY,
+    SCRIPT_FAMILY: SCRIPT_FAMILY,
+    drawTitle: drawTitle,
+    drawSubtitle: drawSubtitle,
+    drawTagline: drawTagline,
+    roundRect: roundRect,
+  };
+})();

@@ -1,50 +1,60 @@
-// PNG export at the three post sizes. The same drawPoster call renders
-// the preview and every export, so what you see is what the PNG holds.
-import { drawPoster } from './poster.js';
+// export.js — PNG export at the three post sizes. The export renders the
+// exact same renderCover() the preview uses, at full size, after all
+// photos have loaded in fixed order. Deterministic: same state, same
+// bytes. No wall-clock, no randomness.
+(function () {
+  'use strict';
 
-export const EXPORT_SIZES = [
-  { id: '1920x1080', w: 1920, h: 1080, label: '1920 × 1080 · Landscape' },
-  { id: '1080x1080', w: 1080, h: 1080, label: '1080 × 1080 · Square' },
-  { id: '1080x1350', w: 1080, h: 1350, label: '1080 × 1350 · Portrait' },
-];
+  var SIZES = [
+    { w: 1920, h: 1080, label: 'wide' },
+    { w: 1080, h: 1080, label: 'square' },
+    { w: 1080, h: 1350, label: 'portrait' },
+  ];
 
-export function findExportSize(sizeId) {
-  return EXPORT_SIZES.find((s) => s.id === sizeId) || EXPORT_SIZES[0];
-}
+  function imagesMap() {
+    // Photos.loadImage caches by src; resolve each distinct src once.
+    var state = window.SunsetCover.state;
+    var srcs = [];
+    var seen = new Set();
+    state.panels.forEach(function (p) {
+      if (p.photo && !seen.has(p.photo)) { seen.add(p.photo); srcs.push(p.photo); }
+    });
+    return Promise.all(srcs.map(function (s) { return window.SunsetPhotos.loadImage(s); })).then(function (imgs) {
+      var map = new Map();
+      srcs.forEach(function (s, i) { map.set(s, imgs[i]); });
+      return map;
+    });
+  }
 
-/** Render the cover at W x H and return the canvas (not yet downloaded). */
-export function renderExportCanvas(state, images, sizeId) {
-  const size = findExportSize(sizeId);
-  const canvas = document.createElement('canvas');
-  canvas.width = size.w;
-  canvas.height = size.h;
-  const ctx = canvas.getContext('2d');
-  drawPoster(ctx, size.w, size.h, state, images);
-  return canvas;
-}
+  /** Render the cover at W x H and return a PNG data URL. */
+  function exportDataURL(w, h) {
+    return imagesMap().then(function (images) {
+      var canvas = document.createElement('canvas');
+      window.SunsetPoster.renderCover(canvas, w, h, window.SunsetCover.state, images);
+      return canvas.toDataURL('image/png');
+    });
+  }
 
-/** Render + download the PNG for one size; resolves with the blob. */
-export function exportCoverPNG(state, images, sizeId) {
-  return new Promise((resolve, reject) => {
-    const canvas = renderExportCanvas(state, images, sizeId);
-    canvas.toBlob((blob) => {
-      if (!blob) { reject(new Error('PNG export failed')); return; }
-      const size = findExportSize(sizeId);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+  /** Render the cover at W x H and trigger a browser download. */
+  function exportPNG(w, h) {
+    return exportDataURL(w, h).then(function (url) {
+      var a = document.createElement('a');
       a.href = url;
-      a.download = 'sunset-cover-' + size.id + '.png';
+      a.download = 'sunset-cover-' + w + 'x' + h + '.png';
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
-      resolve(blob);
-    }, 'image/png');
-  });
-}
+      return url;
+    });
+  }
 
-/** Render + return a data URL (used by the screenshot tooling, no download). */
-export function exportCoverDataURL(state, images, sizeId, type, quality) {
-  const canvas = renderExportCanvas(state, images, sizeId);
-  return canvas.toDataURL(type || 'image/png', quality);
-}
+  /** Render the cover into the preview canvas at its current size. */
+  function renderPreviewInto(canvas) {
+    return imagesMap().then(function (images) {
+      window.SunsetPoster.renderCover(canvas, canvas.width, canvas.height, window.SunsetCover.state, images);
+      return true;
+    });
+  }
+
+  window.SunsetExport = { SIZES: SIZES, exportDataURL: exportDataURL, exportPNG: exportPNG, renderPreviewInto: renderPreviewInto };
+})();

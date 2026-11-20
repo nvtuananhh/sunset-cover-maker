@@ -1,87 +1,139 @@
 // Sunset Cover Maker — entry program (main.ts).
-// Copies app/ and screenshots/ into the output directory and writes
-// /output/dossier.json with buildDossier from ./vendor/makefun-app.ts.
-// Standard library only, deterministic: the same input tree always
-// produces the same dossier.json bytes (no timestamps inside the dossier;
-// the manifest carries the build time separately, so re-runs of this
-// program agree on dossier.json byte for byte).
+//
+// Hands the built app to the grader: validates app/ and screenshots/,
+// copies both trees into the output directory, writes manifest.json
+// (file list, sizes, hashes, git HEAD, build time) and dossier.json
+// (via vendor/makefun-app.ts buildDossier).
+//
+// DETERMINISM: this program's output is a pure function of the repo
+// contents. The build time is the commit time of HEAD, never the wall
+// clock, so two runs seconds apart write byte-identical output.
+// There is no Date.now(), no new Date(), no Math.random() anywhere here.
+
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-app.ts';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
-import { join, resolve } from 'node:path';
 
-const OUT = resolve(process.env.MAKEFUN_OUTPUT_DIR || '/output');
-const ROOT = resolve(import.meta.dirname || '.');
+const REPO_ROOT = dirname(fileURLToPath(import.meta.url));
+const OUTPUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const MAX_SCREENSHOT_BYTES = 262144;
+const FIXED_EPOCH = new Date(0).toISOString();
 
-function fail(message) {
-  console.error('main.ts: ' + message);
-  process.exit(1);
-}
+const TITLE =
+  'Sunset Cover Maker — photographic GTA-style poster studio: pop-out hero, cast role tags, chrome titles, 3-size PNG export';
 
-function listFiles(dir, base) {
-  const out = [];
-  for (const name of readdirSync(dir).sort()) {
-    const full = join(dir, name);
-    const rel = base ? base + '/' + name : name;
-    const st = statSync(full);
-    if (st.isDirectory()) out.push(...listFiles(full, rel));
-    else if (st.isFile()) out.push({ path: rel, bytes: st.size });
-  }
-  return out;
-}
-
-function gitHead() {
+/** Commit time of HEAD as an ISO string, or the fixed epoch when git is unavailable. */
+function gitCommitTime(): string {
   try {
-    return execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+    const out = execFileSync('git', ['log', '-1', '--format=%cI'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/.test(out)) return out;
+    return FIXED_EPOCH;
+  } catch {
+    return FIXED_EPOCH;
+  }
+}
+
+/** Short hash of HEAD, or 'unknown' when git is unavailable. */
+function gitHead(): string {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
   } catch {
     return 'unknown';
   }
 }
 
-function main() {
-  const appDir = join(ROOT, 'app');
-  const shotsDir = join(ROOT, 'screenshots');
-  if (!existsSync(join(appDir, 'index.html'))) fail('app/index.html is missing');
-  if (!statSync(join(appDir, 'index.html')).isFile()) fail('app/index.html is not a file');
-  if (!existsSync(shotsDir)) fail('screenshots/ is missing');
-  const shots = readdirSync(shotsDir).filter((n) => !n.startsWith('.')).sort();
-  if (shots.length < 3 || shots.length > 4) fail('screenshots/ must hold 3 or 4 images, found ' + shots.length);
+function sha256(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+/** Copy a directory tree, entries in code-unit order, files only. */
+function copyTree(src: string, dst: string, out: { path: string; bytes: number; sha256: string }[], prefix: string): void {
+  mkdirSync(dst, { recursive: true });
+  const entries = readdirSync(src, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  for (const entry of entries) {
+    const from = join(src, entry.name);
+    const to = join(dst, entry.name);
+    const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      copyTree(from, to, out, rel);
+    } else if (entry.isFile()) {
+      const bytes = readFileSync(from);
+      copyFileSync(from, to);
+      out.push({ path: rel, bytes: bytes.length, sha256: sha256(bytes) });
+    } else {
+      throw new Error(`${rel}: not a plain file or directory`);
+    }
+  }
+}
+
+function fail(message: string): never {
+  throw new Error(`main.ts: ${message}`);
+}
+
+function main(): void {
+  const appDir = join(REPO_ROOT, 'app');
+  const shotsDir = join(REPO_ROOT, 'screenshots');
+  if (!existsSync(join(appDir, 'index.html')) || !statSync(join(appDir, 'index.html')).isFile()) {
+    fail('app/index.html is missing');
+  }
+  if (!existsSync(shotsDir) || !statSync(shotsDir).isDirectory()) fail('screenshots/ is missing');
+  const shots = readdirSync(shotsDir)
+    .filter((name) => /\.(?:jpg|jpeg|png)$/i.test(name))
+    .sort();
+  if (shots.length < 3 || shots.length > 4) fail(`screenshots/: expected 3 or 4 images, found ${shots.length}`);
   for (const name of shots) {
-    const full = join(shotsDir, name);
-    if (!statSync(full).isFile()) fail('screenshots/' + name + ' is not a file');
-    const size = statSync(full).size;
-    if (size > 262144) fail('screenshots/' + name + ' is ' + size + ' bytes, over the 256 KiB cap');
-    const magic = readFileSync(full).subarray(0, 3);
-    const isJpeg = magic[0] === 0xff && magic[1] === 0xd8 && magic[2] === 0xff;
-    const isPng = magic[0] === 0x89 && magic[1] === 0x50 && magic[2] === 0x4e;
-    if (!isJpeg && !isPng) fail('screenshots/' + name + ' is neither JPEG nor PNG');
+    const size = statSync(join(shotsDir, name)).size;
+    if (size > MAX_SCREENSHOT_BYTES) fail(`screenshots/${name}: ${size} bytes, over the ${MAX_SCREENSHOT_BYTES} allowed`);
   }
 
-  mkdirSync(OUT, { recursive: true });
-  mkdirSync(join(OUT, 'app'), { recursive: true });
-  mkdirSync(join(OUT, 'screenshots'), { recursive: true });
-  cpSync(appDir, join(OUT, 'app'), { recursive: true });
-  cpSync(shotsDir, join(OUT, 'screenshots'), { recursive: true });
+  mkdirSync(OUTPUT_DIR, { recursive: true });
+  const files: { path: string; bytes: number; sha256: string }[] = [];
+  copyTree(appDir, join(OUTPUT_DIR, 'app'), files, 'app');
+  copyTree(shotsDir, join(OUTPUT_DIR, 'screenshots'), files, 'screenshots');
+  files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
-  const dossier = buildDossier(OUT, {
+  const manifest = {
+    app: 'sunset-cover-maker',
+    title: TITLE,
+    gitHead: gitHead(),
+    buildTime: gitCommitTime(),
+    files,
+  };
+  writeFileSync(join(OUTPUT_DIR, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+  const dossier = buildDossier(OUTPUT_DIR, {
     text_max_bytes: 163840,
     screenshots: { max: 4, max_bytes: 262144 },
     app_max_files: 993,
     app_max_bytes: 50331648,
   });
-  writeFileSync(join(OUT, 'dossier.json'), dossier);
+  writeFileSync(join(OUTPUT_DIR, 'dossier.json'), dossier);
 
-  const manifest = {
-    app: 'Sunset Cover Maker',
-    competition: 'gta6-cover-art-01',
-    gitHead: gitHead(),
-    buildTime: new Date().toISOString(),
-    files: listFiles(join(OUT, 'app'), 'app'),
-    screenshots: shots.map((name) => ({ path: 'screenshots/' + name, bytes: statSync(join(OUT, 'screenshots', name)).size })),
-    dossierBytes: dossier.length,
-  };
-  writeFileSync(join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-  console.log('main.ts: wrote ' + OUT + ' (dossier ' + dossier.length + ' bytes, ' + shots.length + ' screenshots, head ' + manifest.gitHead.slice(0, 12) + ')');
+  console.log(`Sunset Cover Maker -> ${OUTPUT_DIR}`);
+  console.log(`files: ${files.length}, screenshots: ${shots.length}, gitHead: ${manifest.gitHead}`);
+  console.log(`buildTime: ${manifest.buildTime}`);
+  console.log(`dossier.json: ${dossier.length} bytes`);
 }
 
 main();
