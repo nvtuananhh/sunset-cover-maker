@@ -116,7 +116,6 @@
     ctx.rotate(-0.035);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = SCRIPT_FAMILY.replace('700', '700').replace('Georgia', 'Georgia');
     ctx.font = 'italic 700 ' + size + 'px Georgia, \'DejaVu Serif\', \'Times New Roman\', serif';
     ctx.shadowColor = '#ff2e88';
     ctx.shadowBlur = size * 0.5;
