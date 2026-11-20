@@ -39,7 +39,7 @@ export const state = JSON.parse(JSON.stringify(DEFAULT_STATE));
 state.panels = makePanels('vice');
 
 const images = new Map();
-let previewDirty = true;
+let previewDirty = false;
 
 function $(id) { return document.getElementById(id); }
 

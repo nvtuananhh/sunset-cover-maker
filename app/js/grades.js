@@ -95,11 +95,12 @@ export function drawGrain(ctx, W, H, seedText) {
   let seed = 1234567;
   for (let i = 0; i < seedText.length; i++) seed = (seed * 31 + seedText.charCodeAt(i)) >>> 0;
   const rand = mulberry32(seed);
-  const step = Math.max(6, Math.round(W / 320));
+  const step = Math.max(8, Math.round(W / 240));
   ctx.save();
-  ctx.globalAlpha = 0.05;
+  ctx.globalAlpha = 0.035;
   for (let y = 0; y < H; y += step) {
     for (let x = 0; x < W; x += step) {
+      if (rand() < 0.45) continue;
       const v = rand() > 0.5 ? 255 : 0;
       ctx.fillStyle = v ? '#ffffff' : '#000000';
       ctx.fillRect(x, y, step * 0.6, step * 0.6);

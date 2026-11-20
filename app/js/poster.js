@@ -80,10 +80,13 @@ export function drawPoster(ctx, W, H, state, images) {
   if (state.showQuote) drawQuoteBar(ctx, W, H, state);
   drawCornerLabels(ctx, W, H, state);
 
-  // --- Role tag on every panel.
+  // --- Role tag on every panel. Grid layouts (cast6, mosaic4) put the
+  // tag at the TOP of each panel: the chrome title + script subtitle
+  // overlap the lower rows, so a bottom tag would be hidden behind them.
+  const tagTop = state.layout === 'cast6' || state.layout === 'mosaic4';
   for (let i = 0; i < rects.length; i++) {
     const panel = state.panels[i];
-    if (panel) drawRoleTag(ctx, rects[i], panel.role, W, i === hero);
+    if (panel) drawRoleTag(ctx, rects[i], panel.role, W, i === hero, tagTop);
   }
 
   // --- Chrome title overlapping the panels + script subtitle + tagline.
@@ -91,7 +94,7 @@ export function drawPoster(ctx, W, H, state, images) {
   drawChromeTitle(ctx, state, { cx: W / 2, y: titleY, width: W * 0.94 });
   const subSize = Math.max(16, Math.round(W * 0.032));
   drawScriptSubtitle(ctx, state.subtitle, W / 2, titleY + subSize * 1.55, subSize);
-  drawTaglinePill(ctx, state.tagline, W / 2, H * 0.885, W);
+  drawTaglinePill(ctx, state.tagline, W / 2, H * (aspect < 1 ? 0.915 : 0.885), W);
 
   // --- Billing block, barcode, gold seal along the bottom edge.
   drawBilling(ctx, W, H, state);
@@ -152,14 +155,18 @@ export function drawCornerLabels(ctx, W, H, state) {
 }
 
 /** Small black/white ticket reading the cast role, pinned to a panel corner. */
-export function drawRoleTag(ctx, rect, role, W, isHero) {
+export function drawRoleTag(ctx, rect, role, W, isHero, forceTop) {
   const size = Math.max(11, Math.round(W * 0.0115));
   ctx.save();
   ctx.font = '800 ' + size + 'px ' + UI_FONTS;
   const w = ctx.measureText(role).width + size * 1.5;
   const h = size * 1.9;
   const x = rect.x + Math.max(4, rect.w * 0.04);
-  const y = rect.y + rect.h - h - Math.max(4, rect.h * 0.04);
+  // Hero tag goes at the TOP of its panel: the chrome title overlaps the
+  // hero's bottom, so a bottom tag would be hidden behind the title.
+  const y = (isHero || forceTop)
+    ? rect.y + Math.max(4, rect.h * 0.04)
+    : rect.y + rect.h - h - Math.max(4, rect.h * 0.04);
   ctx.fillStyle = isHero ? '#ffc93c' : 'rgba(16,3,12,0.92)';
   ctx.strokeStyle = isHero ? '#16040f' : '#ffffff';
   ctx.lineWidth = Math.max(1, W * 0.0009);
@@ -207,7 +214,14 @@ export function drawBarcode(ctx, W, H, state) {
   }
   ctx.font = '700 ' + Math.max(9, Math.round(bh * 0.32)) + 'px ' + UI_FONTS;
   ctx.textAlign = 'center';
-  ctx.fillText('8 90123 45678 9', x + bw / 2, y + bh + 11);
+  // Shrink the catalogue number until it fits inside the white box.
+  let numSize = Math.max(9, Math.round(bh * 0.32));
+  const num = '8 90123 45678 9';
+  while (numSize > 7 && ctx.measureText(num).width > bw + 4) {
+    numSize -= 1;
+    ctx.font = '700 ' + numSize + 'px ' + UI_FONTS;
+  }
+  ctx.fillText(num, x + bw / 2, y + bh + 11);
   ctx.restore();
 }
 

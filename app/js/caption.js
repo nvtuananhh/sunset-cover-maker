@@ -114,12 +114,9 @@ export function drawChromeTitle(ctx, state, box) {
       }
       ctx.restore();
     }
-    // Hot highlight line across the top of the letters.
-    ctx.save();
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(box.cx - box.width * 0.46, box.y - fitSize * 0.82, box.width * 0.92, Math.max(2, fitSize * 0.02));
-    ctx.restore();
+    // (No full-width highlight bar: a straight bar across the letters
+    // reads as a scratch over the photos. The gradient's light top
+    // stop already gives the chrome its hot edge.)
   }
   ctx.restore();
   return { size: fitSize, width: trackedWidth(ctx, title, tracking) };
