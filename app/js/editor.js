@@ -1,414 +1,395 @@
-// editor.js — app boot + state + all editor wiring. Owns the live preview:
-// every control change re-renders the same canvas the exporter writes.
-(function () {
-  'use strict';
+// App boot + state + editor wiring: photo library, layout/grade pickers,
+// panel selection and drag-pan, focus-point mode, caption controls and
+// the three export buttons. The preview canvas re-renders on every change.
+import { SAMPLE_PHOTOS, loadSampleImages } from './samples.js';
+import { seedLibrary, loadPhotoImage, addUploads, removeUpload, findPhoto, photoLibrary } from './photos.js';
+import { LAYOUTS, makePanels, layoutRects, heroIndex, panelAtPoint } from './panels.js';
+import { GRADES, findGrade } from './grades.js';
+import { drawPoster } from './poster.js';
+import { exportCoverPNG, EXPORT_SIZES } from './export.js';
 
-  var SCM = window.SCM;
+export const DEFAULT_STATE = {
+  layout: 'vice',
+  grade: 'vice',
+  grain: true,
+  halftone: false,
+  title: 'SUNSET CITY',
+  subtitle: 'Vice never sleeps',
+  tagline: 'FIVE FRIENDS · ONE COAST · NO WAY BACK',
+  quote: 'HOTTER THAN THE ASPHALT',
+  quoteSource: 'THE PALM GAZETTE',
+  billing: 'A SUNSET PICTURES PRODUCTION · STARRING YOU · SHOT ON YOUR OWN CAMERA',
+  volume: 'VOL. 1',
+  season: 'SEASON ONE',
+  status: 'NOW SHOWING',
+  titleStyle: 'chrome',
+  titleColour: 'sunset',
+  titleSize: 1,
+  titleY: 0,
+  tracking: 0.04,
+  showQuote: true,
+  showSeal: true,
+  showBarcode: true,
+  panels: [],
+  selectedPanel: 2,
+  focusMode: false,
+};
 
-  var state = {
-    layout: 'hero',
-    grade: 'sunset',
-    grain: true,
-    halftone: false,
-    frames: true,
-    size: '1080x1350',
-    photos: [],
-    panels: [SCM.defaultPanel(), SCM.defaultPanel(), SCM.defaultPanel(), SCM.defaultPanel()],
-    selectedPanel: 0,
-    caption: SCM.defaultCaption(),
+export const state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+state.panels = makePanels('vice');
+
+const images = new Map();
+let previewDirty = true;
+
+function $(id) { return document.getElementById(id); }
+
+function previewCanvas() { return $('previewCanvas'); }
+
+/** Load every sample image, then paint the first preview. */
+export function bootEditor() {
+  seedLibrary();
+  buildLibraryUI();
+  buildLayoutUI();
+  buildGradeUI();
+  buildRoleInputs();
+  wireControls();
+  wireCanvas();
+  loadSampleImages().then((loaded) => {
+    for (const [id, img] of loaded) if (img) images.set(id, img);
+    scheduleRender();
+  });
+  scheduleRender();
+  // Test hooks: headless screenshot tooling drives the app through these.
+  window.__sunset = {
+    state,
+    images,
+    renderNow,
+    setState(next) { Object.assign(state, next); scheduleRender(); },
+    exportSize: async (id) => {
+      const mod = await import('./export.js');
+      return mod.renderExportCanvas(state, images, id);
+    },
   };
+}
 
-  var preview, sizeLabel, gradeLabel, exportStatus;
-  var renderQueued = false;
+function scheduleRender() {
+  if (previewDirty) return;
+  previewDirty = true;
+  requestAnimationFrame(renderNow);
+}
 
-  function $(id) { return document.getElementById(id); }
+function renderNow() {
+  previewDirty = false;
+  const canvas = previewCanvas();
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  // Preview is always landscape 960x540; exports re-render at full size.
+  drawPoster(ctx, canvas.width, canvas.height, state, images);
+  updatePanelLabel();
+}
 
-  function requestRender() {
-    if (renderQueued) return;
-    renderQueued = true;
-    requestAnimationFrame(function () {
-      renderQueued = false;
-      renderPreview();
-    });
-  }
+/** Keep the preview aspect matched to the selected export preview size. */
+function updatePanelLabel() {
+  const panel = state.panels[state.selectedPanel];
+  const hero = heroIndex(state.layout);
+  const name = state.selectedPanel === hero ? 'Hero' : 'Panel ' + (state.selectedPanel + 1);
+  $('panelLabel').textContent = 'Panel: ' + name + ' — ' + (panel ? panel.role : '');
+  const size = EXPORT_SIZES[0];
+  $('sizeLabel').textContent = size.w + ' × ' + size.h + ' · ' + findGrade(state.grade).name + ' · ' + (LAYOUTS.find((l) => l.id === state.layout) || {}).name;
+}
 
-  function renderPreview() {
-    var size = SCM.sizes[state.size];
-    SCM.renderCover(preview, size.w, size.h, state);
-    sizeLabel.textContent = size.label;
-    gradeLabel.textContent = SCM.grades[state.grade].label;
-  }
+// ---------------------------------------------------------------- library UI
 
-  // ---- photo strip ---------------------------------------------------------
-  function refreshPhotoStrip() {
-    var strip = $('photoStrip');
-    strip.innerHTML = '';
-    if (state.photos.length === 0) {
-      var empty = document.createElement('div');
-      empty.className = 'photo-thumb is-empty';
-      empty.textContent = 'No photos yet';
-      strip.appendChild(empty);
+function buildLibraryUI() {
+  const grid = $('photoLibrary');
+  grid.innerHTML = '';
+  for (const entry of photoLibrary) {
+    const btn = document.createElement('button');
+    btn.className = 'thumb';
+    btn.type = 'button';
+    btn.dataset.photoId = entry.id;
+    const img = document.createElement('img');
+    img.src = entry.src;
+    img.alt = entry.label;
+    img.draggable = false;
+    const cap = document.createElement('span');
+    cap.textContent = entry.label;
+    btn.appendChild(img);
+    btn.appendChild(cap);
+    if (entry.uploaded) {
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.type = 'button';
+      del.textContent = '×';
+      del.title = 'Remove upload';
+      del.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        removeUpload(entry.id);
+        buildLibraryUI();
+        scheduleRender();
+      });
+      btn.appendChild(del);
     }
-    state.photos.forEach(function (photo, idx) {
-      var img = document.createElement('img');
-      img.className = 'photo-thumb';
-      img.src = photo.img.src;
-      img.alt = photo.label;
-      img.title = photo.label;
-      img.addEventListener('click', function () {
-        state.panels[state.selectedPanel].photo = idx;
-        refreshPanelControls();
-        requestRender();
+    btn.addEventListener('click', () => {
+      const panel = state.panels[state.selectedPanel];
+      if (!panel) return;
+      panel.photoId = entry.id;
+      const sample = SAMPLE_PHOTOS.find((s) => s.id === entry.id);
+      if (sample) { panel.focusX = sample.focusX; panel.focusY = sample.focusY; }
+      loadPhotoImage(entry).then((imgEl) => { if (imgEl) images.set(entry.id, imgEl); scheduleRender(); });
+      markPickedThumb(entry.id);
+      buildPanelStrip();
+      scheduleRender();
+    });
+    grid.appendChild(btn);
+  }
+  const current = state.panels[state.selectedPanel];
+  if (current) markPickedThumb(current.photoId);
+}
+
+function markPickedThumb(photoId) {
+  for (const el of document.querySelectorAll('#photoLibrary .thumb')) {
+    el.classList.toggle('picked', el.dataset.photoId === photoId);
+  }
+}
+
+// ---------------------------------------------------------------- layout + grade UI
+
+function buildLayoutUI() {
+  const grid = $('layoutGrid');
+  grid.innerHTML = '';
+  for (const layout of LAYOUTS) {
+    const btn = document.createElement('button');
+    btn.className = 'tbtn' + (state.layout === layout.id ? ' on' : '');
+    btn.type = 'button';
+    btn.innerHTML = '<b></b><small></small>';
+    btn.querySelector('b').textContent = layout.name;
+    btn.querySelector('small').textContent = layout.desc;
+    btn.addEventListener('click', () => {
+      state.layout = layout.id;
+      state.panels = makePanels(layout.id);
+      state.selectedPanel = heroIndex(layout.id) >= 0 ? heroIndex(layout.id) : 0;
+      buildLayoutUI();
+      buildRoleInputs();
+      buildPanelStrip();
+      syncCropSliders();
+      scheduleRender();
+    });
+    grid.appendChild(btn);
+  }
+}
+
+function buildGradeUI() {
+  const grid = $('gradeGrid');
+  grid.innerHTML = '';
+  for (const grade of GRADES) {
+    const btn = document.createElement('button');
+    btn.className = 'tbtn' + (state.grade === grade.id ? ' on' : '');
+    btn.type = 'button';
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    sw.style.background = grade.swatch;
+    btn.appendChild(sw);
+    btn.appendChild(document.createTextNode(grade.name));
+    btn.addEventListener('click', () => {
+      state.grade = grade.id;
+      buildGradeUI();
+      scheduleRender();
+    });
+    grid.appendChild(btn);
+  }
+}
+
+// ---------------------------------------------------------------- panel strip + roles
+
+function buildPanelStrip() {
+  const strip = $('panelStrip');
+  strip.innerHTML = '';
+  state.panels.forEach((panel, i) => {
+    const card = document.createElement('button');
+    card.className = 'pcard' + (i === state.selectedPanel ? ' on' : '');
+    card.type = 'button';
+    const photo = findPhoto(panel.photoId);
+    card.innerHTML = '<b></b><span class="role"></span><span class="ph"></span>';
+    card.querySelector('b').textContent = (i === heroIndex(state.layout) ? '★ Hero' : 'Panel ' + (i + 1));
+    card.querySelector('.role').textContent = panel.role;
+    card.querySelector('.ph').textContent = photo ? photo.label : panel.photoId;
+    card.addEventListener('click', () => {
+      state.selectedPanel = i;
+      buildPanelStrip();
+      buildLibraryUI();
+      syncCropSliders();
+      scheduleRender();
+    });
+    strip.appendChild(card);
+  });
+}
+
+function buildRoleInputs() {
+  const box = $('roleInputs');
+  box.innerHTML = '';
+  state.panels.forEach((panel, i) => {
+    const label = document.createElement('label');
+    label.className = 'field';
+    label.textContent = (i === heroIndex(state.layout) ? '★ Hero' : 'Panel ' + (i + 1)) + ' role tag';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = panel.role;
+    input.maxLength = 18;
+    input.addEventListener('input', () => {
+      panel.role = input.value.toUpperCase();
+      buildPanelStrip();
+      scheduleRender();
+    });
+    label.appendChild(input);
+    box.appendChild(label);
+  });
+}
+
+function syncCropSliders() {
+  const panel = state.panels[state.selectedPanel];
+  if (!panel) return;
+  $('zoomSlider').value = String(panel.zoom);
+  $('panXSlider').value = String(panel.panX);
+  $('panYSlider').value = String(panel.panY);
+  $('rotateSlider').value = String(panel.rotate);
+}
+
+// ---------------------------------------------------------------- controls
+
+function bindText(id, key, upper) {
+  $(id).addEventListener('input', (ev) => {
+    state[key] = upper ? ev.target.value.toUpperCase() : ev.target.value;
+    scheduleRender();
+  });
+}
+
+function bindToggle(id, key) {
+  $(id).addEventListener('change', (ev) => {
+    state[key] = ev.target.checked;
+    scheduleRender();
+  });
+}
+
+function wireControls() {
+  $('uploadInput').addEventListener('change', (ev) => {
+    addUploads(ev.target.files).then(() => {
+      buildLibraryUI();
+      scheduleRender();
+      ev.target.value = '';
+    });
+  });
+  bindText('titleInput', 'title', true);
+  bindText('subtitleInput', 'subtitle', false);
+  bindText('taglineInput', 'tagline', true);
+  bindText('quoteInput', 'quote', true);
+  bindText('quoteSourceInput', 'quoteSource', true);
+  bindText('billingInput', 'billing', true);
+  bindText('volumeInput', 'volume', true);
+  bindText('seasonInput', 'season', true);
+  bindText('statusInput', 'status', true);
+  bindToggle('quoteToggle', 'showQuote');
+  bindToggle('sealToggle', 'showSeal');
+  bindToggle('barcodeToggle', 'showBarcode');
+  bindToggle('grainToggle', 'grain');
+  bindToggle('halftoneToggle', 'halftone');
+  $('titleSizeSlider').addEventListener('input', (ev) => { state.titleSize = Number(ev.target.value); scheduleRender(); });
+  $('titleYSlider').addEventListener('input', (ev) => { state.titleY = Number(ev.target.value); scheduleRender(); });
+  $('trackingSlider').addEventListener('input', (ev) => { state.tracking = Number(ev.target.value); scheduleRender(); });
+  $('titleColourSelect').addEventListener('change', (ev) => { state.titleColour = ev.target.value; scheduleRender(); });
+  $('titleStyleSeg').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-style]');
+    if (!btn) return;
+    state.titleStyle = btn.dataset.style;
+    for (const b of $('titleStyleSeg').querySelectorAll('button')) b.classList.toggle('on', b === btn);
+    scheduleRender();
+  });
+  $('zoomSlider').addEventListener('input', (ev) => { const p = state.panels[state.selectedPanel]; if (p) { p.zoom = Number(ev.target.value); scheduleRender(); } });
+  $('panXSlider').addEventListener('input', (ev) => { const p = state.panels[state.selectedPanel]; if (p) { p.panX = Number(ev.target.value); scheduleRender(); } });
+  $('panYSlider').addEventListener('input', (ev) => { const p = state.panels[state.selectedPanel]; if (p) { p.panY = Number(ev.target.value); scheduleRender(); } });
+  $('rotateSlider').addEventListener('input', (ev) => { const p = state.panels[state.selectedPanel]; if (p) { p.rotate = Number(ev.target.value); scheduleRender(); } });
+  $('resetCropBtn').addEventListener('click', () => {
+    const p = state.panels[state.selectedPanel];
+    if (p) { p.zoom = 1.15; p.panX = 0; p.panY = 0; p.rotate = 0; p.focusX = 0.5; p.focusY = 0.32; syncCropSliders(); scheduleRender(); }
+  });
+  $('focusModeBtn').addEventListener('click', () => {
+    state.focusMode = !state.focusMode;
+    $('focusModeBtn').classList.toggle('on', state.focusMode);
+    $('focusModeBtn').textContent = state.focusMode ? '◎ Click the preview to set focus — ON' : '◎ Set focus point';
+  });
+  for (const btn of document.querySelectorAll('[data-export]')) {
+    btn.addEventListener('click', () => {
+      const sizeId = btn.dataset.export;
+      btn.disabled = true;
+      $('exportStatus').textContent = 'Rendering ' + sizeId + '…';
+      exportCoverPNG(state, images, sizeId).then(() => {
+        $('exportStatus').textContent = 'Exported sunset-cover-' + sizeId + '.png ✓';
+        btn.disabled = false;
+      }).catch((err) => {
+        $('exportStatus').textContent = 'Export failed: ' + err.message;
+        btn.disabled = false;
       });
-      strip.appendChild(img);
-    });
-    refreshPanelPhotoSelect();
-  }
-
-  function refreshPanelPhotoSelect() {
-    var sel = $('panelPhoto');
-    sel.innerHTML = '';
-    state.photos.forEach(function (photo, idx) {
-      var opt = document.createElement('option');
-      opt.value = String(idx);
-      opt.textContent = (idx + 1) + ' · ' + photo.label;
-      sel.appendChild(opt);
-    });
-    var cur = state.panels[state.selectedPanel];
-    sel.value = String(cur.photo);
-    sel.disabled = state.photos.length === 0;
-  }
-
-  function refreshPanelControls() {
-    var p = state.panels[state.selectedPanel];
-    $('zoomSlider').value = String(p.zoom);
-    $('zoomVal').textContent = p.zoom.toFixed(2) + '×';
-    $('rotSlider').value = String(p.rot);
-    $('rotVal').textContent = p.rot + '°';
-    var count = SCM.panelCount(state.layout);
-    $('panelHint').textContent =
-      'Panel ' + (state.selectedPanel + 1) + ' of ' + count +
-      ' selected — zoom, rotate and pan apply to it.';
-    refreshPanelPhotoSelect();
-  }
-
-  function markStepDone(n) {
-    var el = $('step' + n);
-    if (el) el.classList.add('is-done');
-  }
-
-  // ---- caption controls ----------------------------------------------------
-  function bindCaptionControls() {
-    $('titleInput').addEventListener('input', function (e) {
-      state.caption.title = e.target.value;
-      requestRender();
-    });
-    $('subtitleInput').addEventListener('input', function (e) {
-      state.caption.subtitle = e.target.value;
-      requestRender();
-    });
-    $('tagInput').addEventListener('input', function (e) {
-      state.caption.tag = e.target.value;
-      requestRender();
-    });
-    $('titleSizeSlider').addEventListener('input', function (e) {
-      state.caption.sizePct = Number(e.target.value);
-      $('titleSizeVal').textContent = e.target.value + '%';
-      requestRender();
-    });
-    $('spacingSlider').addEventListener('input', function (e) {
-      state.caption.spacing = Number(e.target.value);
-      $('spacingVal').textContent = e.target.value + ' px';
-      requestRender();
-    });
-    $('captionColor').addEventListener('change', function (e) {
-      state.caption.color = e.target.value;
-      requestRender();
-    });
-    $('capYSlider').addEventListener('input', function (e) {
-      state.caption.yPct = Number(e.target.value);
-      $('capYVal').textContent = capYLabel(Number(e.target.value));
-      requestRender();
-    });
-    $('resetBtn').addEventListener('click', function () {
-      state.caption = SCM.defaultCaption();
-      syncCaptionInputs();
-      requestRender();
-    });
-    $('shuffleBtn').addEventListener('click', function () {
-      var grades = SCM.gradeNames();
-      var layouts = SCM.layoutNames();
-      var colors = Object.keys(SCM.captionColors);
-      state.grade = grades[Math.floor(Math.random() * grades.length)];
-      state.layout = layouts[Math.floor(Math.random() * layouts.length)];
-      state.caption.color = colors[Math.floor(Math.random() * colors.length)];
-      state.caption.yPct = 62 + Math.floor(Math.random() * 26);
-      syncChoiceButtons();
-      syncCaptionInputs();
-      refreshPanelControls();
-      requestRender();
     });
   }
+  buildPanelStrip();
+}
 
-  function capYLabel(v) {
-    if (v < 30) return 'Top';
-    if (v < 60) return 'Upper middle';
-    if (v < 85) return 'Lower';
-    return 'Bottom';
-  }
+// ---------------------------------------------------------------- canvas interaction
 
-  function syncCaptionInputs() {
-    $('titleInput').value = state.caption.title;
-    $('subtitleInput').value = state.caption.subtitle;
-    $('tagInput').value = state.caption.tag;
-    $('titleSizeSlider').value = String(state.caption.sizePct);
-    $('titleSizeVal').textContent = state.caption.sizePct + '%';
-    $('spacingSlider').value = String(state.caption.spacing);
-    $('spacingVal').textContent = state.caption.spacing + ' px';
-    $('captionColor').value = state.caption.color;
-    $('capYSlider').value = String(state.caption.yPct);
-    $('capYVal').textContent = capYLabel(state.caption.yPct);
-  }
+function canvasPoint(ev) {
+  const canvas = previewCanvas();
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return { x: (ev.clientX - rect.left) * scaleX, y: (ev.clientY - rect.top) * scaleY };
+}
 
-  // ---- layout / grade / effect choices -------------------------------------
-  function syncChoiceButtons() {
-    document.querySelectorAll('#layoutChoices .choice').forEach(function (btn) {
-      btn.classList.toggle('is-active', btn.dataset.layout === state.layout);
-    });
-    document.querySelectorAll('#gradeChoices .choice').forEach(function (btn) {
-      btn.classList.toggle('is-active', btn.dataset.grade === state.grade);
-    });
-    document.querySelectorAll('.export-btn').forEach(function (btn) {
-      btn.classList.toggle('is-active', btn.dataset.export === state.size);
-    });
-  }
-
-  function bindChoices() {
-    document.querySelectorAll('#layoutChoices .choice').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        state.layout = btn.dataset.layout;
-        state.selectedPanel = 0;
-        syncChoiceButtons();
-        refreshPanelControls();
-        requestRender();
-      });
-    });
-    document.querySelectorAll('#gradeChoices .choice').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        state.grade = btn.dataset.grade;
-        syncChoiceButtons();
-        requestRender();
-      });
-    });
-    $('grainToggle').addEventListener('change', function (e) {
-      state.grain = e.target.checked;
-      requestRender();
-    });
-    $('halftoneToggle').addEventListener('change', function (e) {
-      state.halftone = e.target.checked;
-      requestRender();
-    });
-    $('frameToggle').addEventListener('change', function (e) {
-      state.frames = e.target.checked;
-      requestRender();
-    });
-    document.querySelectorAll('.export-btn').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        state.size = btn.dataset.export;
-        syncChoiceButtons();
-        requestRender();
-      });
-    });
-  }
-
-  // ---- panel controls --------------------------------------------------------
-  function bindPanelControls() {
-    $('panelPhoto').addEventListener('change', function (e) {
-      state.panels[state.selectedPanel].photo = Number(e.target.value);
-      requestRender();
-    });
-    $('zoomSlider').addEventListener('input', function (e) {
-      state.panels[state.selectedPanel].zoom = Number(e.target.value);
-      $('zoomVal').textContent = Number(e.target.value).toFixed(2) + '×';
-      requestRender();
-    });
-    $('rotSlider').addEventListener('input', function (e) {
-      state.panels[state.selectedPanel].rot = Number(e.target.value);
-      $('rotVal').textContent = e.target.value + '°';
-      requestRender();
-    });
-  }
-
-  // ---- uploads ---------------------------------------------------------------
-  function bindUploads() {
-    $('photoInput').addEventListener('change', function (e) {
-      addUploadedFiles(e.target.files);
-      e.target.value = '';
-    });
-    $('useSamplesBtn').addEventListener('click', function () {
-      loadSamplesIntoState();
-    });
-  }
-
-  function addUploadedFiles(files) {
-    SCM.readPhotoFiles(files, function (name, why) {
-      exportStatus.textContent = 'Skipped ' + name + ': ' + why + '.';
-    }).then(function (photos) {
-      if (photos.length === 0) return;
-      state.photos = state.photos.concat(photos);
-      // New photos fill empty panels first, then replace the selected one.
-      photos.forEach(function (photo, k) {
-        var idx = state.photos.indexOf(photo);
-        var empty = state.panels.findIndex(function (p) { return !state.photos[p.photo]; });
-        if (empty >= 0) state.panels[empty].photo = idx;
-        else if (k === 0) state.panels[state.selectedPanel].photo = idx;
-      });
-      markStepDone(1);
-      refreshPhotoStrip();
-      refreshPanelControls();
-      requestRender();
-    });
-  }
-
-  function loadSamplesIntoState() {
-    SCM.loadSamples().then(function (samples) {
-      if (samples.length === 0) {
-        exportStatus.textContent = 'Sample photos could not be loaded.';
-        return;
-      }
-      // Keep user uploads first; samples append after them. Panels take
-      // alternating photos so neighbouring panels never repeat the same shot.
-      var base = state.photos.length;
-      state.photos = state.photos.concat(samples);
-      state.panels.forEach(function (p, i) {
-        p.photo = (base + i) % state.photos.length;
-      });
-      markStepDone(1);
-      refreshPhotoStrip();
-      refreshPanelControls();
-      requestRender();
-    });
-  }
-
-  // ---- preview dragging: caption first, else pan the panel ------------------
-  function bindPreviewDrag() {
-    var drag = null;
-    function toCover(e) {
-      var r = preview.getBoundingClientRect();
-      return {
-        x: ((e.clientX - r.left) / r.width) * preview.width,
-        y: ((e.clientY - r.top) / r.height) * preview.height,
-      };
+function wireCanvas() {
+  const canvas = previewCanvas();
+  let dragging = false;
+  let last = null;
+  canvas.addEventListener('pointerdown', (ev) => {
+    const pt = canvasPoint(ev);
+    const rects = layoutRects(state.layout, canvas.width / canvas.height).map((r) => ({
+      x: r.x * canvas.width, y: r.y * canvas.height, w: r.w * canvas.width, h: r.h * canvas.height,
+    }));
+    const hit = panelAtPoint(rects, pt.x, pt.y);
+    if (hit < 0) return;
+    if (state.focusMode) {
+      const panel = state.panels[hit];
+      const r = rects[hit];
+      panel.focusX = Math.min(0.95, Math.max(0.05, (pt.x - r.x) / r.w));
+      panel.focusY = Math.min(0.95, Math.max(0.05, (pt.y - r.y) / r.h));
+      state.selectedPanel = hit;
+      buildPanelStrip();
+      scheduleRender();
+      return;
     }
-    preview.addEventListener('pointerdown', function (e) {
-      var pt = toCover(e);
-      var capRect = SCM.captionBlockRect(preview.width, preview.height, state.caption);
-      if (pt.x >= capRect.x && pt.x <= capRect.x + capRect.w &&
-          pt.y >= capRect.y && pt.y <= capRect.y + capRect.h) {
-        drag = { kind: 'caption', startX: pt.x, startY: pt.y, xPct: state.caption.xPct, yPct: state.caption.yPct };
-      } else {
-        var rects = SCM.layoutRects(state.layout, preview.width, preview.height);
-        var hit = SCM.hitPanel(rects, pt.x, pt.y);
-        if (hit >= 0) {
-          state.selectedPanel = hit;
-          refreshPanelControls();
-          var p = state.panels[hit];
-          drag = { kind: 'pan', startX: pt.x, startY: pt.y, ox: p.ox, oy: p.oy, rect: rects[hit] };
-        }
-      }
-      if (drag) preview.setPointerCapture(e.pointerId);
-    });
-    preview.addEventListener('pointermove', function (e) {
-      if (!drag) return;
-      var pt = toCover(e);
-      if (drag.kind === 'caption') {
-        state.caption.xPct = Math.max(8, Math.min(92, drag.xPct + ((pt.x - drag.startX) / preview.width) * 100));
-        state.caption.yPct = Math.max(6, Math.min(96, drag.yPct + ((pt.y - drag.startY) / preview.height) * 100));
-        $('capYSlider').value = String(Math.round(state.caption.yPct));
-        $('capYVal').textContent = capYLabel(Math.round(state.caption.yPct));
-      } else {
-        var p = state.panels[state.selectedPanel];
-        p.ox = Math.max(-0.6, Math.min(0.6, drag.ox + (pt.x - drag.startX) / drag.rect.w));
-        p.oy = Math.max(-0.6, Math.min(0.6, drag.oy + (pt.y - drag.startY) / drag.rect.h));
-      }
-      requestRender();
-    });
-    function endDrag() { drag = null; }
-    preview.addEventListener('pointerup', endDrag);
-    preview.addEventListener('pointercancel', endDrag);
-  }
-
-  // ---- export ----------------------------------------------------------------
-  function bindExport() {
-    $('downloadBtn').addEventListener('click', function () {
-      exportStatus.textContent = 'Rendering ' + state.size + '…';
-      SCM.downloadPNG(state.size, state).then(function (out) {
-        exportStatus.textContent = 'Downloaded sunset-cover-' + state.size + '.png (' + out.width + ' × ' + out.height + ').';
-        markStepDone(3);
-      }).catch(function (err) {
-        exportStatus.textContent = 'Export failed: ' + err.message;
-      });
-    });
-  }
-
-  // ---- deterministic URL params (for screenshots + sharing a look) -----------
-  function applyUrlParams() {
-    var q = new URLSearchParams(location.search);
-    if (q.get('layout') && SCM.layouts[q.get('layout')]) state.layout = q.get('layout');
-    if (q.get('grade') && SCM.grades[q.get('grade')]) state.grade = q.get('grade');
-    if (q.get('size') && SCM.sizes[q.get('size')]) state.size = q.get('size');
-    if (q.get('title') !== null) state.caption.title = q.get('title');
-    if (q.get('subtitle') !== null) state.caption.subtitle = q.get('subtitle');
-    if (q.get('tag') !== null) state.caption.tag = q.get('tag');
-    if (q.get('color') && SCM.captionColors[q.get('color')]) state.caption.color = q.get('color');
-    if (q.get('capy') !== null) state.caption.yPct = Number(q.get('capy')) || state.caption.yPct;
-    if (q.get('halftone') === '1') state.halftone = true;
-    if (q.get('grain') === '0') state.grain = false;
-    return q;
-  }
-
-  // ---- boot ------------------------------------------------------------------
-  function boot() {
-    preview = $('preview');
-    sizeLabel = $('sizeLabel');
-    gradeLabel = $('gradeLabel');
-    exportStatus = $('exportStatus');
-
-    var q = applyUrlParams();
-    bindCaptionControls();
-    bindChoices();
-    bindPanelControls();
-    bindUploads();
-    bindPreviewDrag();
-    bindExport();
-    syncCaptionInputs();
-    syncChoiceButtons();
-    $('grainToggle').checked = state.grain;
-    $('halftoneToggle').checked = state.halftone;
-    $('frameToggle').checked = state.frames;
-
-    // Samples first so the app is usable with zero uploads; the URL param
-    // ?sample=none skips them (bare editor shot).
-    var wantSamples = q.get('sample') !== 'none';
-    if (wantSamples) {
-      loadSamplesIntoState();
-    } else {
-      refreshPhotoStrip();
+    state.selectedPanel = hit;
+    buildPanelStrip();
+    buildLibraryUI();
+    syncCropSliders();
+    dragging = true;
+    last = pt;
+    canvas.classList.add('dragging');
+    canvas.setPointerCapture(ev.pointerId);
+    scheduleRender();
+  });
+  canvas.addEventListener('pointermove', (ev) => {
+    if (!dragging || !last) return;
+    const pt = canvasPoint(ev);
+    const panel = state.panels[state.selectedPanel];
+    if (panel) {
+      panel.panX = Math.min(0.4, Math.max(-0.4, panel.panX + (pt.x - last.x) / canvas.width));
+      panel.panY = Math.min(0.4, Math.max(-0.4, panel.panY + (pt.y - last.y) / canvas.height));
+      syncCropSliders();
+      scheduleRender();
     }
-    refreshPanelControls();
-    // Fonts load async; re-render once Anton/Inter are ready so the
-    // preview (and any export) uses the real lettering.
-    if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(function () { requestRender(); });
-    }
-    requestRender();
-    window.SCM.state = state;
-    window.SCM.ready = true;
-  }
+    last = pt;
+  });
+  const endDrag = () => { dragging = false; last = null; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+}
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
-  }
-})();
+bootEditor();

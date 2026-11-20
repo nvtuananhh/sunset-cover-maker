@@ -3,162 +3,105 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sunset Cover Maker — GTA 6-style cover art from your photos</title>
-<meta name="description" content="Turn any photo and caption into GTA 6-poster-style multi-panel cover art, graded in Vice City sunset or neon, exported as a PNG. Offline, photos never leave your machine.">
-<link rel="icon" href="data:,">
+<title>Sunset Cover Maker — GTA-style poster studio</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand">
-    <span class="brand-mark" aria-hidden="true">SC</span>
-    <div>
-      <h1>Sunset Cover Maker</h1>
-      <p class="tagline">GTA-style poster covers from your photos — offline, no upload</p>
-    </div>
-  </div>
-  <ol class="steps" aria-label="Three steps">
-    <li class="step" id="step1"><b>1</b> Upload</li>
-    <li class="step" id="step2"><b>2</b> Arrange + caption</li>
-    <li class="step" id="step3"><b>3</b> Export PNG</li>
-  </ol>
+  <div class="brand"><span class="brand-mark">☀</span><span class="brand-name">SUNSET COVER MAKER</span><span class="brand-sub">GTA-style poster studio</span></div>
+  <div class="steps"><span class="step on" id="step1">1 Upload</span><span class="step-arrow">→</span><span class="step on" id="step2">2 Arrange + caption</span><span class="step-arrow">→</span><span class="step on" id="step3">3 Export PNG</span></div>
 </header>
+<main class="layout">
+  <aside class="col left" aria-label="Photos, templates and grades">
+    <section class="panel-box">
+      <h2>Photos</h2>
+      <p class="hint">Click a photo, then a panel, to place it. Uploads stay on your machine.</p>
+      <label class="upload-btn" for="uploadInput">+ Upload photos</label>
+      <input type="file" id="uploadInput" accept="image/*" multiple hidden>
+      <div class="thumb-grid" id="photoLibrary"></div>
+    </section>
+    <section class="panel-box">
+      <h2>Layout <span class="count" id="layoutCount">7 templates</span></h2>
+      <div class="btn-grid" id="layoutGrid"></div>
+    </section>
+    <section class="panel-box">
+      <h2>Colour grade</h2>
+      <div class="btn-grid grades" id="gradeGrid"></div>
+      <label class="check"><input type="checkbox" id="grainToggle" checked> Film grain</label>
+      <label class="check"><input type="checkbox" id="halftoneToggle"> Halftone dots</label>
+    </section>
+  </aside>
 
-<main class="editor">
-  <section class="panel left" aria-label="Photos, layout and grade">
-    <h2>Photos</h2>
-    <div class="photo-strip" id="photoStrip"></div>
-    <div class="row">
-      <label class="upload-btn">+ Add photos
-        <input type="file" id="photoInput" accept="image/*" multiple hidden>
+  <section class="col centre" aria-label="Live preview">
+    <div class="preview-bar">
+      <span id="sizeLabel">1920 × 1080 · landscape</span>
+      <span id="panelLabel">Panel: Hero — THE CAPTAIN</span>
+      <button class="mini-btn" id="focusModeBtn" title="Click the preview to set the focus point of the selected panel">◎ Set focus point</button>
+    </div>
+    <div class="canvas-wrap"><canvas id="previewCanvas" width="960" height="540"></canvas></div>
+    <div class="panel-strip" id="panelStrip"></div>
+    <div class="crop-tools">
+      <label>Zoom <input type="range" id="zoomSlider" min="1" max="2.5" step="0.01" value="1.15"></label>
+      <label>Pan X <input type="range" id="panXSlider" min="-0.4" max="0.4" step="0.01" value="0"></label>
+      <label>Pan Y <input type="range" id="panYSlider" min="-0.4" max="0.4" step="0.01" value="0"></label>
+      <label>Rotate <input type="range" id="rotateSlider" min="-15" max="15" step="1" value="0">°</label>
+      <button class="mini-btn" id="resetCropBtn">Reset crop</button>
+    </div>
+    <p class="hint centre-hint">Drag on the preview to pan the selected panel's photo. Click a panel strip card to select it.</p>
+  </section>
+
+  <aside class="col right" aria-label="Caption and export">
+    <section class="panel-box">
+      <h2>Caption</h2>
+      <label class="field">Title <input type="text" id="titleInput" value="SUNSET CITY" maxlength="24"></label>
+      <label class="field">Subtitle (script) <input type="text" id="subtitleInput" value="Vice never sleeps" maxlength="40"></label>
+      <label class="field">Tagline <input type="text" id="taglineInput" value="FIVE FRIENDS · ONE COAST · NO WAY BACK" maxlength="60"></label>
+      <div class="row3">
+        <label class="field">Title size <input type="range" id="titleSizeSlider" min="0.7" max="1.4" step="0.05" value="1"></label>
+        <label class="field">Title height <input type="range" id="titleYSlider" min="-0.12" max="0.12" step="0.01" value="0"></label>
+        <label class="field">Tracking <input type="range" id="trackingSlider" min="0" max="0.18" step="0.01" value="0.04"></label>
+      </div>
+      <div class="seg" id="titleStyleSeg">
+        <button data-style="chrome" class="on">Chrome</button>
+        <button data-style="striped">Striped retro</button>
+        <button data-style="neon">Neon outline</button>
+      </div>
+      <label class="field">Title colour
+        <select id="titleColourSelect">
+          <option value="sunset">Sunset chrome</option>
+          <option value="gold">Gold chrome</option>
+          <option value="ice">Ice chrome</option>
+          <option value="pink">Hot pink</option>
+        </select>
       </label>
-      <button type="button" id="useSamplesBtn" class="ghost-btn">Use sample photos</button>
-    </div>
-    <p class="hint">Photos stay on your machine — they are read locally and never uploaded.</p>
-
-    <h2>Layout</h2>
-    <div class="choice-grid" id="layoutChoices" role="group" aria-label="Layout">
-      <button type="button" data-layout="hero" class="choice is-active">
-        <span class="thumb thumb-hero" aria-hidden="true"><i></i><i></i><i></i></span>
-        Hero + 2 panels
-      </button>
-      <button type="button" data-layout="mosaic" class="choice">
-        <span class="thumb thumb-mosaic" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        4-panel mosaic
-      </button>
-      <button type="button" data-layout="fullbleed" class="choice">
-        <span class="thumb thumb-full" aria-hidden="true"><i></i></span>
-        Full-bleed + caption bar
-      </button>
-    </div>
-
-    <h2>Colour grade</h2>
-    <div class="choice-grid" id="gradeChoices" role="group" aria-label="Colour grade">
-      <button type="button" data-grade="sunset" class="choice is-active">
-        <span class="swatch sw-sunset" aria-hidden="true"></span> Vice Sunset
-      </button>
-      <button type="button" data-grade="neon" class="choice">
-        <span class="swatch sw-neon" aria-hidden="true"></span> Neon Nights
-      </button>
-      <button type="button" data-grade="golden" class="choice">
-        <span class="swatch sw-golden" aria-hidden="true"></span> Golden Hour
-      </button>
-      <button type="button" data-grade="noir" class="choice">
-        <span class="swatch sw-noir" aria-hidden="true"></span> Noir
-      </button>
-    </div>
-
-    <h2>Effects</h2>
-    <label class="check"><input type="checkbox" id="grainToggle" checked> Film grain</label>
-    <label class="check"><input type="checkbox" id="halftoneToggle"> Halftone dots</label>
-    <label class="check"><input type="checkbox" id="frameToggle" checked> Panel frames + gutters</label>
-
-    <h2>Selected panel</h2>
-    <p class="hint" id="panelHint">Click a panel in the preview to select it.</p>
-    <label class="field">Photo in this panel
-      <select id="panelPhoto"></select>
-    </label>
-    <label class="field">Zoom <span class="val" id="zoomVal">1.00×</span>
-      <input type="range" id="zoomSlider" min="1" max="3" step="0.01" value="1">
-    </label>
-    <label class="field">Rotate <span class="val" id="rotVal">0°</span>
-      <input type="range" id="rotSlider" min="-15" max="15" step="1" value="0">
-    </label>
-    <p class="hint">Drag inside a panel to pan the photo. Drag the caption to move it.</p>
-  </section>
-
-  <section class="preview-wrap" aria-label="Live preview">
-    <div class="preview-head">
-      <span id="sizeLabel">1080 × 1350 · portrait</span>
-      <span id="gradeLabel">Vice Sunset</span>
-    </div>
-    <canvas id="preview" width="1080" height="1350"></canvas>
-    <p class="hint preview-hint">Live preview — exactly what the PNG will look like.</p>
-  </section>
-
-  <section class="panel right" aria-label="Caption and export">
-    <h2>Caption</h2>
-    <label class="field">Title
-      <input type="text" id="titleInput" value="NEON SHORE" maxlength="24">
-    </label>
-    <label class="field">Subtitle
-      <input type="text" id="subtitleInput" value="VICE CITY NIGHTS" maxlength="40">
-    </label>
-    <label class="field">Tag line
-      <input type="text" id="tagInput" value="OUT NOW · SUNSET COVER MAKER" maxlength="48">
-    </label>
-    <label class="field">Title size <span class="val" id="titleSizeVal">100%</span>
-      <input type="range" id="titleSizeSlider" min="55" max="150" step="1" value="100">
-    </label>
-    <label class="field">Letter spacing <span class="val" id="spacingVal">6 px</span>
-      <input type="range" id="spacingSlider" min="0" max="18" step="1" value="6">
-    </label>
-    <label class="field">Caption colour
-      <select id="captionColor">
-        <option value="white">White hot</option>
-        <option value="sunset">Sunset gradient</option>
-        <option value="neon">Neon pink</option>
-        <option value="gold">Gold</option>
-        <option value="black">Black ink</option>
-      </select>
-    </label>
-    <label class="field">Caption position <span class="val" id="capYVal">Bottom</span>
-      <input type="range" id="capYSlider" min="0" max="100" step="1" value="82">
-    </label>
-    <div class="row">
-      <button type="button" id="shuffleBtn" class="ghost-btn">Shuffle look</button>
-      <button type="button" id="resetBtn" class="ghost-btn">Reset caption</button>
-    </div>
-
-    <h2>Export</h2>
-    <p class="hint">One click downloads the PNG. All three post sizes:</p>
-    <div class="export-grid">
-      <button type="button" class="export-btn" data-export="1080x1080">
-        <b>1080 × 1080</b><span>Square post</span>
-      </button>
-      <button type="button" class="export-btn is-active" data-export="1080x1350">
-        <b>1080 × 1350</b><span>Portrait post</span>
-      </button>
-      <button type="button" class="export-btn" data-export="1920x1080">
-        <b>1920 × 1080</b><span>Landscape / banner</span>
-      </button>
-    </div>
-    <button type="button" id="downloadBtn" class="download-btn">Download PNG</button>
-    <p class="hint" id="exportStatus" role="status">Ready — pick a size, then download.</p>
-  </section>
+    </section>
+    <section class="panel-box">
+      <h2>Poster furniture</h2>
+      <label class="field">Press quote <input type="text" id="quoteInput" value="HOTTER THAN THE ASPHALT" maxlength="48"></label>
+      <label class="field">Quote source <input type="text" id="quoteSourceInput" value="THE PALM GAZETTE" maxlength="30"></label>
+      <label class="field">Billing line <input type="text" id="billingInput" value="A SUNSET PICTURES PRODUCTION · STARRING YOU · SHOT ON YOUR OWN CAMERA" maxlength="90"></label>
+      <div class="row3">
+        <label class="field">Volume <input type="text" id="volumeInput" value="VOL. 1" maxlength="12"></label>
+        <label class="field">Season <input type="text" id="seasonInput" value="SEASON ONE" maxlength="14"></label>
+        <label class="field">Status <input type="text" id="statusInput" value="NOW SHOWING" maxlength="14"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="quoteToggle" checked> Press-quote bar</label>
+      <label class="check"><input type="checkbox" id="sealToggle" checked> Gold seal “ORIGINAL COVER ART”</label>
+      <label class="check"><input type="checkbox" id="barcodeToggle" checked> Barcode + catalogue no.</label>
+      <label class="field">Role tags <span class="hint" id="roleHint">one per panel, top to bottom</span></label>
+      <div id="roleInputs"></div>
+    </section>
+    <section class="panel-box export-box">
+      <h2>Export PNG</h2>
+      <p class="hint">One click downloads the PNG. Same cover, three post sizes.</p>
+      <button class="export-btn" data-export="1920x1080">1920 × 1080 · Landscape</button>
+      <button class="export-btn" data-export="1080x1080">1080 × 1080 · Square</button>
+      <button class="export-btn" data-export="1080x1350">1080 × 1350 · Portrait</button>
+      <p class="hint" id="exportStatus">Ready.</p>
+    </section>
+  </aside>
 </main>
-
-<footer class="foot">
-  <p>Sunset Cover Maker — original art, original lettering. Fonts: Anton + Inter under the SIL Open Font License.
-  No Rockstar Games logo, artwork or font is used. Sample photos are code-drawn originals.</p>
-</footer>
-
-<script src="js/samples.js"></script>
-<script src="js/photos.js"></script>
-<script src="js/panels.js"></script>
-<script src="js/grades.js"></script>
-<script src="js/caption.js"></script>
-<script src="js/export.js"></script>
-<script src="js/editor.js"></script>
+<footer class="foot">Sunset Cover Maker — original poster art, no Rockstar artwork or fonts. Photos are read locally and never uploaded. Sample photos are fictional people made with an image model.</footer>
+<script type="module" src="js/editor.js"></script>
 </body>
 </html>

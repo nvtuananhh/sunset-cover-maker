@@ -1,179 +1,183 @@
-// caption.js — the bold poster caption: big condensed title, subtitle and
-// tag line, drawn with glyph-accurate letter spacing so the block never
-// overflows the cover. Colour presets, outline + shadow, draggable position.
-(function () {
-  'use strict';
+// Caption rendering: the huge chrome title, the slanted script subtitle
+// and the tagline pill. All poster type is drawn on the canvas (gradient
+// fill + stroke + shadow) so the export matches the preview exactly.
+// System fonts only — no font files anywhere in the repo.
+export const TITLE_FONTS = '"Noto Sans Condensed Black", "Noto Sans", "Arial Narrow", sans-serif';
+export const SCRIPT_FONTS = 'italic 700 Georgia, "Times New Roman", serif';
+export const UI_FONTS = '"Noto Sans", "DejaVu Sans", Arial, sans-serif';
 
-  var CAPTION_COLORS = {
-    white: { fill: '#ffffff', stroke: '#1a0b26', bar: '#ff7a3d' },
-    sunset: { gradient: true, stroke: '#1a0b26', bar: '#ffc46b' },
-    neon: { fill: '#ff4dd2', stroke: '#12081c', bar: '#37e0c8' },
-    gold: { fill: '#ffc46b', stroke: '#1a0b26', bar: '#ff4d8d' },
-    black: { fill: '#14101a', stroke: '#ffffff', bar: '#ff7a3d' },
-  };
+export const TITLE_COLOURS = {
+  sunset: ['#ffe95c', '#ffb347', '#ff7a18', '#ff2e88', '#8b2eff'],
+  gold: ['#fff6c8', '#ffd23c', '#ff9a1a', '#c97b00', '#7a4a00'],
+  ice: ['#ffffff', '#d8ecff', '#9fc8ee', '#5c8fc9', '#2e5c8a'],
+  pink: ['#ffd6f2', '#ff9ad9', '#ff2e88', '#c9186e', '#7b0f4d'],
+};
 
-  function defaultCaption() {
-    return {
-      title: 'NEON SHORE',
-      subtitle: 'VICE CITY NIGHTS',
-      tag: 'OUT NOW · SUNSET COVER MAKER',
-      sizePct: 100,
-      spacing: 6,
-      color: 'white',
-      xPct: 50,
-      yPct: 82,
-    };
+/** Measure a tracked (letter-spaced) string by hand: canvas has no
+ *  letterSpacing in every build, so we draw glyph by glyph. */
+export function trackedWidth(ctx, text, tracking) {
+  let w = 0;
+  for (const ch of text) w += ctx.measureText(ch).width + tracking;
+  return w - tracking;
+}
+
+/** Draw one line of tracked text, centred on cx. Returns the drawn width. */
+export function drawTracked(ctx, text, cx, y, tracking) {
+  const widths = [];
+  let total = 0;
+  for (const ch of text) {
+    const w = ctx.measureText(ch).width;
+    widths.push(w);
+    total += w + tracking;
   }
-
-  // Width of text drawn with `spacing` px between glyphs, at the ctx's font.
-  function spacedWidth(ctx, text, spacing) {
-    if (!text) return 0;
-    var w = 0;
-    for (var i = 0; i < text.length; i++) w += ctx.measureText(text[i]).width;
-    return w + spacing * Math.max(0, text.length - 1);
+  total -= tracking;
+  let x = cx - total / 2;
+  for (let i = 0; i < text.length; i++) {
+    ctx.fillText(text[i], x, y);
+    x += widths[i] + tracking;
   }
+  return total;
+}
 
-  // Draws text centred on cx, glyph by glyph, honouring letter spacing.
-  function drawSpacedText(ctx, text, cx, y, spacing) {
-    if (!text) return;
-    var w = spacedWidth(ctx, text, spacing);
-    var x = cx - w / 2;
-    for (var i = 0; i < text.length; i++) {
-      var ch = text[i];
-      ctx.fillText(ch, x, y);
-      ctx.strokeText(ch, x, y);
-      x += ctx.measureText(ch).width + spacing;
-    }
+/** Stroke the same tracked line (used for the title outline pass). */
+export function strokeTracked(ctx, text, cx, y, tracking) {
+  const widths = [];
+  let total = 0;
+  for (const ch of text) {
+    const w = ctx.measureText(ch).width;
+    widths.push(w);
+    total += w + tracking;
   }
-
-  // Same, but only the fill (used for the shadow pass).
-  function drawSpacedFillOnly(ctx, text, cx, y, spacing) {
-    if (!text) return;
-    var w = spacedWidth(ctx, text, spacing);
-    var x = cx - w / 2;
-    for (var i = 0; i < text.length; i++) {
-      ctx.fillText(text[i], x, y);
-      x += ctx.measureText(text[i]).width + spacing;
-    }
+  total -= tracking;
+  let x = cx - total / 2;
+  for (let i = 0; i < text.length; i++) {
+    ctx.strokeText(text[i], x, y);
+    x += widths[i] + tracking;
   }
+  return total;
+}
 
-  // Measures the caption block (title + subtitle + tag) at a given width so
-  // the editor can hit-test it for dragging.
-  function captionBlockRect(W, H, caption) {
-    var s = Math.min(W, H);
-    var titlePx = (s * 0.115 * caption.sizePct) / 100;
-    var subPx = Math.max(14, s * 0.032);
-    var tagPx = Math.max(12, s * 0.02);
-    var cx = (W * caption.xPct) / 100;
-    var cy = (H * caption.yPct) / 100;
-    var blockH = titlePx * 1.05 + subPx * 1.9 + tagPx * 2.6;
-    var blockW = Math.min(W * 0.94, titlePx * 0.62 * Math.max(1, caption.title.length));
-    return { x: cx - blockW / 2, y: cy - blockH / 2, w: blockW, h: blockH, cx: cx, cy: cy };
+/** The huge chrome title. `box` is {cx, y, width} in canvas pixels. */
+export function drawChromeTitle(ctx, state, box) {
+  const title = (state.title || 'SUNSET CITY').toUpperCase();
+  const colours = TITLE_COLOURS[state.titleColour] || TITLE_COLOURS.sunset;
+  const size = Math.round(box.width * 0.115 * state.titleSize);
+  const tracking = size * state.tracking;
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = '900 ' + size + 'px ' + TITLE_FONTS;
+  // Fit: shrink until the tracked title fits the box.
+  let fitSize = size;
+  while (fitSize > size * 0.45 && trackedWidth(ctx, title, tracking) > box.width) {
+    fitSize = Math.round(fitSize * 0.94);
+    ctx.font = '900 ' + fitSize + 'px ' + TITLE_FONTS;
   }
-
-  function drawCaption(ctx, W, H, caption) {
-    var preset = CAPTION_COLORS[caption.color] || CAPTION_COLORS.white;
-    var s = Math.min(W, H);
-    var scale = s / 1080; // spacing and strokes scale with the cover
-    var cx = (W * caption.xPct) / 100;
-    var cy = (H * caption.yPct) / 100;
-    var titlePx = (s * 0.115 * caption.sizePct) / 100;
-    var spacing = caption.spacing * scale * (s / 1080 + 0.6);
-    var subPx = Math.max(13, s * 0.032);
-    var tagPx = Math.max(11, s * 0.02);
-
-    var title = (caption.title || '').toUpperCase();
-    var subtitle = (caption.subtitle || '').toUpperCase();
-    var tag = (caption.tag || '').toUpperCase();
-
-    // Title font, shrunk until the spaced title fits 92% of the width.
-    var fontPx = titlePx;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    while (fontPx > 20) {
-      ctx.font = fontPx + 'px Anton, sans-serif';
-      if (spacedWidth(ctx, title, spacing) <= W * 0.92) break;
-      fontPx *= 0.92;
-    }
-    var titleFont = fontPx + 'px Anton, sans-serif';
-    var titleH = fontPx;
-    var subH = subPx * 1.9;
-    var tagH = tagPx * 2.4;
-    var top = cy - (titleH + subH + tagH) / 2;
-
-    // Sunset bar above the title.
-    var barW = Math.min(W * 0.34, spacedWidth(ctx, title, spacing) * 0.5);
-    var barH = Math.max(4, 7 * scale);
+  const grad = ctx.createLinearGradient(0, box.y - fitSize * 0.85, 0, box.y + fitSize * 0.18);
+  colours.forEach((c, i) => grad.addColorStop(i / (colours.length - 1), c));
+  const shadowOff = Math.max(4, Math.round(fitSize * 0.07));
+  if (state.titleStyle === 'neon') {
+    // Neon outline: dark fill, hot-pink stroke, pink glow.
+    ctx.shadowColor = '#ff2e88';
+    ctx.shadowBlur = Math.round(fitSize * 0.28);
+    ctx.lineWidth = Math.max(2, Math.round(fitSize * 0.045));
+    ctx.strokeStyle = '#ff5ca8';
+    ctx.fillStyle = '#1a0512';
+    strokeTracked(ctx, title, box.cx, box.y, tracking);
+    drawTracked(ctx, title, box.cx, box.y, tracking);
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = Math.max(1, Math.round(fitSize * 0.015));
+    ctx.strokeStyle = '#ffffff';
+    strokeTracked(ctx, title, box.cx, box.y, tracking);
+  } else {
+    // Chrome / striped: offset dark shadow, thick dark outline, gradient fill.
+    ctx.fillStyle = 'rgba(20,2,16,0.9)';
     ctx.save();
-    ctx.fillStyle = preset.bar;
-    ctx.fillRect(cx - barW / 2, top, barW, barH);
+    ctx.translate(shadowOff, shadowOff);
+    drawTracked(ctx, title, box.cx, box.y, tracking);
     ctx.restore();
-
-    var titleY = top + barH + titleH / 2 + titleH * 0.08;
-    var subY = titleY + titleH / 2 + subPx * 0.95;
-    var tagY = subY + subPx * 0.95 + tagPx * 1.1;
-
-    // Title: hard offset shadow, thick outline, then the fill.
-    ctx.save();
-    ctx.font = titleFont;
+    ctx.lineWidth = Math.max(3, Math.round(fitSize * 0.09));
     ctx.lineJoin = 'round';
-    ctx.lineWidth = Math.max(2, fontPx * 0.085);
-    var shadowOff = Math.max(3, fontPx * 0.045);
-    ctx.fillStyle = 'rgba(18,8,28,0.85)';
-    ctx.strokeStyle = 'rgba(18,8,28,0.85)';
-    drawSpacedFillOnly(ctx, title, cx + shadowOff, titleY + shadowOff, spacing);
-    ctx.strokeStyle = preset.stroke;
-    ctx.fillStyle = preset.fill || '#ffffff';
-    if (preset.gradient) {
-      var g = ctx.createLinearGradient(cx - W * 0.3, titleY, cx + W * 0.3, titleY);
-      g.addColorStop(0, '#ffc46b');
-      g.addColorStop(0.5, '#ff7a3d');
-      g.addColorStop(1, '#ff4d8d');
-      ctx.fillStyle = g;
-    }
-    drawSpacedText(ctx, title, cx, titleY, spacing);
-    ctx.restore();
-
-    // Subtitle: bold Inter, wide tracking, with a thin underline.
-    ctx.save();
-    ctx.font = '700 ' + subPx + 'px Inter, sans-serif';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = Math.max(1.5, subPx * 0.12);
-    ctx.strokeStyle = 'rgba(18,8,28,0.9)';
-    ctx.fillStyle = '#ffffff';
-    var subSpacing = spacing * 0.9 + subPx * 0.12;
-    drawSpacedText(ctx, subtitle, cx, subY, subSpacing);
-    var subW = spacedWidth(ctx, subtitle, subSpacing);
-    ctx.fillStyle = preset.bar;
-    ctx.fillRect(cx - subW / 2, subY + subPx * 0.85, subW, Math.max(2, 3 * scale));
-    ctx.restore();
-
-    // Tag line: small caps inside a dark pill.
-    if (tag) {
+    ctx.strokeStyle = '#16040f';
+    strokeTracked(ctx, title, box.cx, box.y, tracking);
+    ctx.fillStyle = grad;
+    drawTracked(ctx, title, box.cx, box.y, tracking);
+    if (state.titleStyle === 'striped') {
+      // Horizontal retro stripes clipped inside the letters.
       ctx.save();
-      ctx.font = '600 ' + tagPx + 'px Inter, sans-serif';
-      var tagSpacing = tagPx * 0.14;
-      var tagW = spacedWidth(ctx, tag, tagSpacing);
-      var pillW = tagW + tagPx * 2.2;
-      var pillH = tagPx * 2.1;
-      var pillX = cx - pillW / 2;
-      var pillY = tagY - pillH / 2;
-      ctx.fillStyle = 'rgba(18,8,28,0.72)';
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(pillX, pillY, pillW, pillH, pillH / 2);
-      else ctx.rect(pillX, pillY, pillW, pillH);
-      ctx.fill();
-      ctx.fillStyle = '#ffe9c9';
-      ctx.strokeStyle = 'rgba(18,8,28,0)';
-      drawSpacedText(ctx, tag, cx, tagY + tagPx * 0.06, tagSpacing);
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.fillStyle = 'rgba(22,4,15,0.55)';
+      const stripeH = Math.max(3, Math.round(fitSize * 0.06));
+      const top = box.y - fitSize * 0.8;
+      for (let y = top; y < box.y + fitSize * 0.1; y += stripeH * 3) {
+        ctx.fillRect(box.cx - box.width / 2, y, box.width, stripeH);
+      }
       ctx.restore();
     }
+    // Hot highlight line across the top of the letters.
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(box.cx - box.width * 0.46, box.y - fitSize * 0.82, box.width * 0.92, Math.max(2, fitSize * 0.02));
+    ctx.restore();
   }
+  ctx.restore();
+  return { size: fitSize, width: trackedWidth(ctx, title, tracking) };
+}
 
-  window.SCM = window.SCM || {};
-  window.SCM.captionColors = CAPTION_COLORS;
-  window.SCM.defaultCaption = defaultCaption;
-  window.SCM.drawCaption = drawCaption;
-  window.SCM.captionBlockRect = captionBlockRect;
-  window.SCM.spacedWidth = spacedWidth;
-})();
+/** Slanted script subtitle in neon pink under the title. */
+export function drawScriptSubtitle(ctx, text, cx, y, size) {
+  ctx.save();
+  ctx.font = SCRIPT_FONTS;
+  ctx.font = 'italic 700 ' + size + 'px Georgia, "Times New Roman", serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.translate(cx, y);
+  ctx.rotate(-0.045);
+  ctx.shadowColor = '#ff2e88';
+  ctx.shadowBlur = Math.round(size * 0.5);
+  ctx.fillStyle = '#ff5ca8';
+  ctx.fillText(text, 0, 0);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#ffd6ec';
+  ctx.fillText(text, 0, -Math.max(1, size * 0.03));
+  ctx.restore();
+}
+
+/** Tagline pill: dark ticket with gold letter-spaced text. */
+export function drawTaglinePill(ctx, text, cx, y, W) {
+  ctx.save();
+  const size = Math.max(13, Math.round(W * 0.016));
+  ctx.font = '700 ' + size + 'px ' + UI_FONTS;
+  const tracking = size * 0.14;
+  const w = trackedWidth(ctx, text.toUpperCase(), tracking) + size * 2.4;
+  const h = size * 2.1;
+  const x = cx - w / 2;
+  ctx.fillStyle = 'rgba(18,3,14,0.92)';
+  ctx.strokeStyle = '#ffc93c';
+  ctx.lineWidth = Math.max(1.5, W * 0.0012);
+  roundRect(ctx, x, y - h / 2, w, h, h / 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#ffd23c';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  drawTracked(ctx, text.toUpperCase(), cx, y + size * 0.05, tracking);
+  ctx.restore();
+  return h;
+}
+
+/** Rounded-rectangle path helper (no Path2D dependency). */
+export function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}

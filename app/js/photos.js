@@ -1,49 +1,55 @@
-// photos.js — reading the user's own photos from their machine (FileReader,
-// local only: nothing is uploaded anywhere) and turning them into images the
-// cover renderer can draw.
-(function () {
-  'use strict';
+// Photo library: built-in samples plus user uploads. Uploads are read with
+// FileReader on the user's own machine and never leave it.
+import { SAMPLE_PHOTOS } from './samples.js';
 
-  function loadImageFromDataUrl(dataUrl) {
-    return new Promise(function (resolve, reject) {
-      var img = new Image();
-      img.onload = function () { resolve(img); };
-      img.onerror = function () { reject(new Error('unreadable image')); };
-      img.src = dataUrl;
-    });
+export const photoLibrary = [];
+let uploadCounter = 0;
+
+/** Fill the library with the built-in samples (src paths, loaded lazily). */
+export function seedLibrary() {
+  photoLibrary.length = 0;
+  for (const p of SAMPLE_PHOTOS) {
+    photoLibrary.push({ id: p.id, label: p.label, src: p.src, focusX: p.focusX, focusY: p.focusY, role: p.role, uploaded: false, img: null });
   }
+  return photoLibrary;
+}
 
-  function readFileAsDataUrl(file) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function () { resolve(reader.result); };
-      reader.onerror = function () { reject(new Error('cannot read ' + file.name)); };
-      reader.readAsDataURL(file);
-    });
-  }
+/** Load the image element for one library entry (cached on the entry). */
+export function loadPhotoImage(entry) {
+  if (entry.img) return Promise.resolve(entry.img);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => { entry.img = img; resolve(img); };
+    img.onerror = () => resolve(null);
+    img.src = entry.src;
+  });
+}
 
-  // Reads each File into {img, label, sample:false}. Files that are not
-  // images, or that fail to decode, are skipped and reported via onSkip.
-  function readPhotoFiles(files, onSkip) {
-    var list = Array.prototype.slice.call(files || []);
-    return Promise.all(list.map(function (file) {
-      if (!/^image\//.test(file.type || '')) {
-        if (onSkip) onSkip(file.name, 'not an image');
-        return null;
-      }
-      return readFileAsDataUrl(file)
-        .then(loadImageFromDataUrl)
-        .then(function (img) { return { img: img, label: file.name, sample: false }; })
-        .catch(function () {
-          if (onSkip) onSkip(file.name, 'could not be decoded');
-          return null;
-        });
-    })).then(function (photos) {
-      return photos.filter(function (p) { return p !== null; });
-    });
-  }
+/** Read uploaded files into the library as data: URIs; returns added entries. */
+export function addUploads(fileList) {
+  const files = Array.from(fileList || []).filter((f) => f.type && f.type.indexOf('image/') === 0);
+  const jobs = files.map((file) => new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      uploadCounter += 1;
+      const entry = { id: 'upload-' + uploadCounter, label: file.name.replace(/\.[^.]+$/, '').slice(0, 18) || 'Upload', src: String(reader.result), focusX: 0.5, focusY: 0.35, role: 'THE CREW', uploaded: true, img: null };
+      photoLibrary.push(entry);
+      resolve(entry);
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  }));
+  return Promise.all(jobs).then((list) => list.filter(Boolean));
+}
 
-  window.SCM = window.SCM || {};
-  window.SCM.readPhotoFiles = readPhotoFiles;
-  window.SCM.loadImageFromDataUrl = loadImageFromDataUrl;
-})();
+/** Remove an uploaded entry from the library (samples cannot be removed). */
+export function removeUpload(entryId) {
+  const i = photoLibrary.findIndex((p) => p.id === entryId && p.uploaded);
+  if (i >= 0) photoLibrary.splice(i, 1);
+  return i >= 0;
+}
+
+/** Find a library entry by id. */
+export function findPhoto(photoId) {
+  return photoLibrary.find((p) => p.id === photoId) || null;
+}
