@@ -411,8 +411,18 @@
     state: state,
     renderPreview: renderPreview,
     requestRender: requestRender,
-    setLayout: function (id) { state.layout = id; requestRender(); },
-    setGrade: function (id) { state.grade = id; requestRender(); },
+    setLayout: function (id) {
+      state.layout = id;
+      if (state.selected >= Panels.panelCount(id)) state.selected = 0;
+      document.querySelectorAll('#templateList button').forEach(function (x) { x.classList.toggle('active', x.dataset.layout === id); });
+      refreshPhotoPicker();
+      requestRender();
+    },
+    setGrade: function (id) {
+      state.grade = id;
+      document.querySelectorAll('#gradeList button').forEach(function (x) { x.classList.toggle('active', x.dataset.grade === id); });
+      requestRender();
+    },
     exportDataURL: function (w, h) { return window.SunsetExport.exportDataURL(w, h); },
     exportPNG: function (w, h) { return window.SunsetExport.exportPNG(w, h); },
     defaultPanels: defaultPanels,
