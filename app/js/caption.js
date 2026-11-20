@@ -10,12 +10,14 @@
 
   function fitSize(ctx, text, maxWidth, size, weight, family, spacingPx) {
     var s = size;
+    ctx.save();
     while (s > 12) {
       ctx.font = weight + ' ' + s + 'px ' + family;
       if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = spacingPx + 'px';
-      if (ctx.measureText(text).width <= maxWidth) return s;
+      if (ctx.measureText(text).width <= maxWidth) break;
       s = Math.floor(s * 0.94);
     }
+    ctx.restore();
     return s;
   }
 
@@ -29,16 +31,58 @@
     return g;
   }
 
-  /** Draw the huge title centred at (cx, baselineY). Returns its bounding box. */
-  function drawTitle(ctx, W, H, state) {
+  /** Measure the title (size, width, top, baseline) without drawing it. */
+  function measureTitle(ctx, W, H, state) {
     var text = (state.title || 'SUNSET').toUpperCase();
-    var cx = W / 2;
     var maxWidth = W * 0.94;
     var base = W * 0.155 * state.titleSize;
     var spacing = W * state.letterSpacing;
     var size = fitSize(ctx, text, maxWidth, base, '900', TITLE_FAMILY, spacing);
+    ctx.save();
+    ctx.font = '900 ' + size + 'px ' + TITLE_FAMILY;
+    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = spacing + 'px';
+    var width = ctx.measureText(text).width;
+    ctx.restore();
     var baselineY = state.titleY * H;
-    var top = baselineY - size;
+    return { text: text, size: size, width: width, top: baselineY - size, baselineY: baselineY, spacing: spacing };
+  }
+
+  /**
+   * Bounding boxes of the furniture that role tags must avoid: the title,
+   * the tagline pill, and the status pill. Pure measurement, no drawing.
+   */
+  function measureFurniture(ctx, W, H, state) {
+    var title = measureTitle(ctx, W, H, state);
+    var titleBox = { x: (W - title.width) / 2, y: title.top, w: title.width, h: title.size * 1.1 };
+    var subSize = Math.max(14, W * 0.032 * state.titleSize);
+    var subY = title.baselineY + subSize * 1.55;
+    var tagSize = Math.max(11, W * 0.0165);
+    ctx.save();
+    ctx.font = '700 ' + tagSize + 'px ' + TITLE_FAMILY;
+    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.004) + 'px';
+    var tagW = ctx.measureText((state.tagline || '').toUpperCase()).width + tagSize * 2.4;
+    ctx.restore();
+    var tagY = (subY + subSize * 0.9) + tagSize * 0.5;
+    var taglineBox = { x: (W - tagW) / 2, y: tagY, w: tagW, h: tagSize * 2.1 };
+    var statusSize = Math.max(11, W * 0.016);
+    ctx.save();
+    ctx.font = '900 ' + statusSize + 'px ' + TITLE_FAMILY;
+    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.002) + 'px';
+    var statusW = ctx.measureText(state.status || 'COMING SOON').width + statusSize * 2.2;
+    ctx.restore();
+    var statusBox = { x: (W - statusW) / 2, y: H * 0.925 - statusSize * 2.0, w: statusW, h: statusSize * 2.0 };
+    return { title: titleBox, tagline: taglineBox, status: statusBox };
+  }
+
+  /** Draw the huge title centred at (cx, baselineY). Returns its bounding box. */
+  function drawTitle(ctx, W, H, state) {
+    var text = (state.title || 'SUNSET').toUpperCase();
+    var cx = W / 2;
+    var m = measureTitle(ctx, W, H, state);
+    var size = m.size;
+    var spacing = m.spacing;
+    var baselineY = m.baselineY;
+    var top = m.top;
     var style = state.titleStyle || 'chrome';
     ctx.save();
     ctx.textAlign = 'center';
@@ -102,7 +146,7 @@
       ctx.fillText(text, cx, baselineY - size * 0.012);
     }
     ctx.restore();
-    return { x: cx - maxWidth / 2, y: top, w: maxWidth, h: size * 1.15, size: size, baselineY: baselineY };
+    return { x: cx - m.width / 2, y: top, w: m.width, h: size * 1.15, size: size, baselineY: baselineY };
   }
 
   /** Slanted script subtitle in neon pink, just under the title. */
@@ -116,6 +160,7 @@
     ctx.rotate(-0.035);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.002) + 'px';
     ctx.font = 'italic 700 ' + size + 'px Georgia, \'DejaVu Serif\', \'Times New Roman\', serif';
     ctx.shadowColor = '#ff2e88';
     ctx.shadowBlur = size * 0.5;
@@ -138,7 +183,7 @@
     if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.004) + 'px';
     var tw = ctx.measureText(text).width + size * 2.4;
     var th = size * 2.1;
-    var y = (subtitleBox ? subtitleBox.y + subtitleBox.size : H * 0.78) + size * 1.1;
+    var y = (subtitleBox ? subtitleBox.y + subtitleBox.size * 0.9 : H * 0.78) + size * 0.5;
     var x = (W - tw) / 2;
     ctx.fillStyle = 'rgba(22, 10, 36, 0.88)';
     ctx.strokeStyle = '#ffc93c';
@@ -167,6 +212,8 @@
   window.SunsetCaption = {
     TITLE_FAMILY: TITLE_FAMILY,
     SCRIPT_FAMILY: SCRIPT_FAMILY,
+    measureTitle: measureTitle,
+    measureFurniture: measureFurniture,
     drawTitle: drawTitle,
     drawSubtitle: drawSubtitle,
     drawTagline: drawTagline,

@@ -48,7 +48,11 @@
     ctx.fillRect(0, 0, W, H);
   }
 
-  function drawRoleTag(ctx, rect, role, W) {
+  // Role tag: a small ticket pinned to the TOP of its panel by default.
+  // Left panels align left, right panels align right, hero aligns left.
+  // `pos` is 'top' or 'bottom' — renderCover picks whichever side dodges
+  // the title, the tagline pill, and the status pill.
+  function drawRoleTag(ctx, rect, role, W, align, pos) {
     if (!role) return;
     var size = Math.max(11, W * 0.0155);
     ctx.save();
@@ -56,8 +60,12 @@
     if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.0015) + 'px';
     var tw = ctx.measureText(role).width + size * 1.5;
     var th = size * 1.9;
-    var x = rect.x + Math.max(4, W * 0.006);
-    var y = rect.y + rect.h - th - Math.max(4, W * 0.006);
+    var x = align === 'right'
+      ? rect.x + rect.w - tw - Math.max(4, W * 0.006)
+      : rect.x + Math.max(4, W * 0.006);
+    var y = pos === 'bottom'
+      ? rect.y + rect.h - th - Math.max(4, W * 0.006)
+      : rect.y + Math.max(4, W * 0.006);
     ctx.fillStyle = 'rgba(12, 5, 20, 0.92)';
     ctx.fillRect(x, y, tw, th);
     ctx.strokeStyle = '#fff3e0';
@@ -68,6 +76,40 @@
     ctx.textBaseline = 'middle';
     ctx.fillText(role, x + size * 0.75, y + th / 2 + size * 0.05);
     ctx.restore();
+  }
+
+  /** A tag's box at `pos` in `rect`, for the collision check. */
+  function tagBox(ctx, rect, role, W, align, pos) {
+    var size = Math.max(11, W * 0.0155);
+    ctx.save();
+    ctx.font = '700 ' + size + 'px ' + Caption.TITLE_FAMILY;
+    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.0015) + 'px';
+    var tw = ctx.measureText(role).width + size * 1.5;
+    ctx.restore();
+    var th = size * 1.9;
+    var x = align === 'right'
+      ? rect.x + rect.w - tw - Math.max(4, W * 0.006)
+      : rect.x + Math.max(4, W * 0.006);
+    var y = pos === 'bottom'
+      ? rect.y + rect.h - th - Math.max(4, W * 0.006)
+      : rect.y + Math.max(4, W * 0.006);
+    return { x: x, y: y, w: tw, h: th };
+  }
+
+  /** Top unless that side hits the title, tagline, or status pill; when
+   *  both sides hit something, take the side with the smaller overlap. */
+  function tagPlacement(ctx, rect, role, W, align, furniture) {
+    var blocked = [furniture.title, furniture.tagline, furniture.status];
+    var overlap = function (box) {
+      return blocked.reduce(function (n, b) {
+        var ox = Math.max(0, Math.min(box.x + box.w, b.x + b.w) - Math.max(box.x, b.x));
+        var oy = Math.max(0, Math.min(box.y + box.h, b.y + b.h) - Math.max(box.y, b.y));
+        return n + ox * oy;
+      }, 0);
+    };
+    var top = tagBox(ctx, rect, role, W, align, 'top');
+    var bottom = tagBox(ctx, rect, role, W, align, 'bottom');
+    return overlap(bottom) < overlap(top) ? 'bottom' : 'top';
   }
 
   function drawQuoteBar(ctx, W, H, state) {
@@ -156,6 +198,7 @@
       }
     }
     ctx.fillStyle = '#111111';
+    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = '0px';
     ctx.font = '700 ' + Math.max(8, W * 0.008) + 'px monospace';
     ctx.textAlign = 'center';
     ctx.fillText(state.catalogue, x + bw / 2, y + bh * 0.92);
@@ -165,9 +208,10 @@
   function drawSeal(ctx, W, H, state) {
     if (!state.showSeal) return;
     var cx = W * 0.065;
-    var cy = H * 0.935;
-    var r = W * 0.042;
+    var cy = H * 0.918;
+    var r = W * 0.036;
     ctx.save();
+    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = '0px';
     ctx.translate(cx, cy);
     ctx.beginPath();
     var points = 16;
@@ -207,12 +251,12 @@
     ctx.fillText('VOL. 1', W * 0.022, H * 0.045);
     ctx.textAlign = 'right';
     ctx.fillText('SEASON ONE', W * 0.978, H * 0.045);
-    // Status pill, bottom centre above the billing block.
+    // Status pill, bottom centre in the gap below the panels, above billing.
     var status = state.status || 'COMING SOON';
     var sw = ctx.measureText(status).width + size * 2.2;
     var sh = size * 2.0;
     var x = (W - sw) / 2;
-    var y = H * 0.895 - sh;
+    var y = H * 0.925 - sh;
     ctx.fillStyle = state.status === 'NOW SHOWING' ? '#ff2e88' : '#ffc93c';
     Caption.roundRect(ctx, x, y, sw, sh, sh / 2);
     ctx.fill();
@@ -291,6 +335,9 @@
     ctx.strokeRect(W * 0.008, H * 0.008, W * 0.984, H * 0.984);
     ctx.restore();
 
+    // Furniture boxes, measured now so role tags can dodge them.
+    var furniture = Caption.measureFurniture(ctx, W, H, state);
+
     // Pop-out hero: redrawn expanded, with a drop shadow, over the frame.
     var heroIdx = -1;
     for (var h = 0; h < visible; h++) if (rects[h].hero) heroIdx = h;
@@ -324,13 +371,17 @@
       ctx.strokeRect(ex, ey, ew, eh);
       ctx.restore();
       // The hero's role tag rides the expanded frame.
-      drawRoleTag(ctx, { x: ex, y: ey, w: ew, h: eh }, hp.role, W);
+      var heroAlign = 'left';
+      var heroPos = tagPlacement(ctx, { x: ex, y: ey, w: ew, h: eh }, hp.role, W, heroAlign, furniture);
+      drawRoleTag(ctx, { x: ex, y: ey, w: ew, h: eh }, hp.role, W, heroAlign, heroPos);
     }
 
     // Role tags on the other panels.
     for (var t = 0; t < visible; t++) {
       if (t === heroIdx && state.layout !== 'fullbleed') continue;
-      drawRoleTag(ctx, rects[t], state.panels[t].role, W);
+      var align = (rects[t].x + rects[t].w / 2) <= W / 2 ? 'left' : 'right';
+      var pos = tagPlacement(ctx, rects[t], state.panels[t].role, W, align, furniture);
+      drawRoleTag(ctx, rects[t], state.panels[t].role, W, align, pos);
     }
 
     // Poster furniture, in fixed order.
