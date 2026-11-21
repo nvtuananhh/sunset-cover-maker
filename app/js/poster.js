@@ -47,7 +47,7 @@
   }
 
   function drawRoleTag(ctx, rect, role, W) {
-    var size = Math.max(11, Math.round(rect.w * 0.085));
+    var size = Math.max(11, Math.round(W * 0.012));
     ctx.save();
     ctx.font = '900 ' + size + 'px ' + SCM.TITLE_FONT;
     var w = ctx.measureText(role).width + size * 1.5;
@@ -68,7 +68,7 @@
   /* Annotation callout: small label + leader line into the panel. */
   function drawCallout(ctx, rect, callout, W, flip) {
     if (!callout) return;
-    var size = Math.max(11, Math.round(rect.w * 0.075));
+    var size = Math.max(11, Math.round(W * 0.011));
     ctx.save();
     ctx.font = '700 ' + size + 'px ' + SCM.UI_FONT;
     var w = ctx.measureText(callout).width + size * 1.6;
@@ -146,6 +146,8 @@
     ctx.restore();
   }
 
+  /* Billing line at the bottom; VOL. 1 / season / status ride the top
+     corners flanking the quote bar, clear of the seal and barcode. */
   function drawBilling(ctx, W, H, area, caption) {
     var size = Math.round(21 * (W / 1920));
     ctx.save();
@@ -156,12 +158,12 @@
     ctx.fillText(caption.billing, W / 2, y);
     ctx.font = '900 ' + Math.round(size * 1.05) + 'px ' + SCM.TITLE_FONT;
     ctx.fillStyle = '#ffc93d';
-    var left = caption.volume + '  ·  ' + caption.season;
-    var right = caption.status;
+    ctx.textBaseline = 'top';
+    var topY = area.y + Math.round(H * 0.016);
     ctx.textAlign = 'left';
-    ctx.fillText(left, area.x + Math.round(W * 0.012), y - size * 1.7);
+    ctx.fillText(caption.volume + '  ·  ' + caption.season, area.x + Math.round(W * 0.012), topY);
     ctx.textAlign = 'right';
-    ctx.fillText(right, area.x + area.w - Math.round(W * 0.012), y - size * 1.7);
+    ctx.fillText(caption.status, area.x + area.w - Math.round(W * 0.012), topY);
     ctx.restore();
   }
 

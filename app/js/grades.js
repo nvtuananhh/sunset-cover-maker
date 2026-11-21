@@ -1,7 +1,7 @@
 /* grades.js — the 9 colour grades. Each is a real canvas composite:
    gradient maps, duotone washes, halftone dots, grain and vignette.
    Grain is drawn from a fixed-seed PRNG, so the same render is
-   byte-identical every time (no Math.random anywhere). */
+   byte-identical every time (no unseeded randomness anywhere). */
 (function () {
   'use strict';
   var SCM = window.SCM = window.SCM || {};
