@@ -116,9 +116,16 @@
       cx += bar + 1 + Math.floor(rnd() * 4);
     }
     ctx.fillStyle = '#160412';
-    ctx.font = '700 ' + Math.round(bh * 0.42) + 'px ' + SCM.UI_FONT;
+    var numSize = Math.round(bh * 0.42);
+    ctx.font = '700 ' + numSize + 'px ' + SCM.UI_FONT;
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText('8 90211 060621', x + bw / 2, y + bh + 2);
+    var numText = '8 90211 060621';
+    var numW = ctx.measureText(numText).width;
+    if (numW > bw + 6) {
+      numSize = Math.max(8, Math.floor(numSize * (bw + 6) / numW));
+      ctx.font = '700 ' + numSize + 'px ' + SCM.UI_FONT;
+    }
+    ctx.fillText(numText, x + bw / 2, y + bh + 2);
     ctx.restore();
   }
 
@@ -181,6 +188,12 @@
     if (state.caption.showQuote) drawQuoteBar(ctx, W, H, area, caption);
     var rects = SCM.panelRects(state.layout, area);
     var gutter = Math.max(3, Math.round(W * 0.0035));
+    /* Portrait exports get a lower title band so the furniture zone
+       does not leave a bare void under the tagline pill. */
+    var cap = caption;
+    if (H > W * 1.1) {
+      cap = Object.assign({}, caption, { titleY: Math.min(0.80, caption.titleY * 1.1) });
+    }
     /* Non-hero panels first, hero last so it breaks the frame. */
     var order = rects.map(function (r, i) { return i; });
     order.sort(function (a, b) { return (rects[a].hero ? 1 : 0) - (rects[b].hero ? 1 : 0); });
@@ -211,10 +224,10 @@
         rect.hero ? 'top-right' : (rect.y > area.y + area.h * 0.4 ? 'top-left' : 'bottom'));
       drawCallout(ctx, rect, panel.callout, W, idx % 2 === 1);
     });
-    var titleY = SCM.drawChromeTitle(ctx, W, H, caption);
-    SCM.drawSubtitle(ctx, W, H, caption, titleY);
+    var titleY = SCM.drawChromeTitle(ctx, W, H, cap);
+    SCM.drawSubtitle(ctx, W, H, cap, titleY);
     var pillY = titleY + Math.round(44 * (W / 1920)) * 1.9;
-    var pillBottom = SCM.drawTaglinePill(ctx, W, H, caption, pillY);
+    var pillBottom = SCM.drawTaglinePill(ctx, W, H, cap, pillY);
     /* Cast line fills the gap between the pill and the billing block. */
     ctx.save();
     ctx.font = '800 ' + Math.round(20 * (W / 1920)) + 'px ' + SCM.UI_FONT;
@@ -222,6 +235,19 @@
     ctx.fillStyle = '#ffb03d';
     ctx.fillText('★  STARRING YOU AND YOUR CREW  ★', W / 2, pillBottom + Math.round(26 * (W / 1920)));
     ctx.restore();
+    if (H > W * 1.1) {
+      /* Portrait: a gold rule + stars dresses the taller furniture zone. */
+      var ruleY = pillBottom + Math.round(96 * (W / 1920));
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,201,61,0.7)';
+      ctx.lineWidth = Math.max(2, W * 0.002);
+      ctx.beginPath(); ctx.moveTo(W * 0.22, ruleY); ctx.lineTo(W * 0.78, ruleY); ctx.stroke();
+      ctx.fillStyle = '#ffc93d';
+      ctx.font = '900 ' + Math.round(22 * (W / 1920)) + 'px ' + SCM.UI_FONT;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('★ ★ ★', W / 2, ruleY);
+      ctx.restore();
+    }
     drawBilling(ctx, W, H, area, caption);
     if (state.caption.showBarcode) drawBarcode(ctx, W, H, area, caption);
     if (state.caption.showSeal) drawSeal(ctx, W, H, area);
