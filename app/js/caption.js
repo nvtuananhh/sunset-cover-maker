@@ -85,12 +85,18 @@
       ctx.strokeStyle = '#ffffff';
       drawSpacedText(ctx, caption.title, W / 2, y, spacing);
     } else if (caption.titleStyle === 'striped') {
-      /* Draw the letters to an offscreen layer, then stripe them. */
+      /* Draw the letters to an offscreen layer, then stripe them.
+         NOTE: the gradient must be created on the layer's own context —
+         a gradient from another canvas does not paint there. */
       var layer = document.createElement('canvas');
       layer.width = W; layer.height = H;
       var lctx = layer.getContext('2d');
+      var lgrad = lctx.createLinearGradient(0, y - size, 0, y + size * 0.12);
+      lgrad.addColorStop(0, '#ffe95e'); lgrad.addColorStop(0.35, '#ffb03d');
+      lgrad.addColorStop(0.62, '#ff5e62'); lgrad.addColorStop(0.85, '#e75480');
+      lgrad.addColorStop(1, '#8e44ad');
       lctx.font = font; lctx.textBaseline = 'alphabetic'; lctx.lineJoin = 'round';
-      lctx.lineWidth = outline; lctx.strokeStyle = '#160412'; lctx.fillStyle = grad;
+      lctx.lineWidth = outline; lctx.strokeStyle = '#160412'; lctx.fillStyle = lgrad;
       lctx.shadowColor = 'rgba(20,2,12,0.85)'; lctx.shadowOffsetX = shadowOff; lctx.shadowOffsetY = shadowOff;
       drawSpacedText.call(null, lctx, caption.title, W / 2, y, spacing);
       lctx.shadowColor = 'transparent'; lctx.shadowOffsetX = 0; lctx.shadowOffsetY = 0;
