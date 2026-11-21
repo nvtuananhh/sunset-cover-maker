@@ -46,14 +46,19 @@
     return y + size * 1.9;
   }
 
-  function drawRoleTag(ctx, rect, role, W) {
+  /* pos: 'bottom' (default), 'top-left' (under the callout) or
+     'top-right' (hero, clear of the title band). */
+  function drawRoleTag(ctx, rect, role, W, pos) {
     var size = Math.max(11, Math.round(W * 0.012));
     ctx.save();
     ctx.font = '900 ' + size + 'px ' + SCM.TITLE_FONT;
     var w = ctx.measureText(role).width + size * 1.5;
     var h = size * 1.9;
-    var x = rect.x + Math.max(6, rect.w * 0.03);
-    var y = rect.y + rect.h - h - Math.max(6, rect.h * 0.03);
+    var mx = Math.max(6, rect.w * 0.03), my = Math.max(6, rect.h * 0.03);
+    var x = rect.x + mx;
+    var y = rect.y + rect.h - h - my;
+    if (pos === 'top-right') { x = rect.x + rect.w - w - mx; y = rect.y + my; }
+    if (pos === 'top-left') { y = rect.y + my + Math.round(W * 0.011) * 2 + 8; }
     ctx.fillStyle = 'rgba(10,2,8,0.92)';
     ctx.strokeStyle = '#ffc93d'; ctx.lineWidth = Math.max(1.5, size * 0.08);
     ctx.beginPath();
@@ -202,13 +207,21 @@
       ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
       ctx.strokeStyle = 'rgba(255,176,61,0.55)'; ctx.lineWidth = Math.max(1, gutter * 0.4);
       ctx.strokeRect(rect.x + gutter, rect.y + gutter, rect.w - gutter * 2, rect.h - gutter * 2);
-      drawRoleTag(ctx, rect, panel.role, W);
+      drawRoleTag(ctx, rect, panel.role, W,
+        rect.hero ? 'top-right' : (rect.y > area.y + area.h * 0.4 ? 'top-left' : 'bottom'));
       drawCallout(ctx, rect, panel.callout, W, idx % 2 === 1);
     });
     var titleY = SCM.drawChromeTitle(ctx, W, H, caption);
     SCM.drawSubtitle(ctx, W, H, caption, titleY);
     var pillY = titleY + Math.round(44 * (W / 1920)) * 1.9;
-    SCM.drawTaglinePill(ctx, W, H, caption, pillY);
+    var pillBottom = SCM.drawTaglinePill(ctx, W, H, caption, pillY);
+    /* Cast line fills the gap between the pill and the billing block. */
+    ctx.save();
+    ctx.font = '800 ' + Math.round(20 * (W / 1920)) + 'px ' + SCM.UI_FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#ffb03d';
+    ctx.fillText('★  STARRING YOU AND YOUR CREW  ★', W / 2, pillBottom + Math.round(26 * (W / 1920)));
+    ctx.restore();
     drawBilling(ctx, W, H, area, caption);
     if (state.caption.showBarcode) drawBarcode(ctx, W, H, area, caption);
     if (state.caption.showSeal) drawSeal(ctx, W, H, area);

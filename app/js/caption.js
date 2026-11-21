@@ -98,16 +98,16 @@
       lctx.globalCompositeOperation = 'source-atop';
       var stripeH = Math.max(4, size * 0.09);
       for (var sy = y - size; sy < y + size * 0.12; sy += stripeH * 2) {
-        lctx.fillStyle = 'rgba(255,255,255,0.28)';
+        lctx.fillStyle = 'rgba(255,255,255,0.15)';
         lctx.fillRect(0, sy, W, stripeH);
-        lctx.fillStyle = 'rgba(40,4,40,0.20)';
+        lctx.fillStyle = 'rgba(40,4,40,0.10)';
         lctx.fillRect(0, sy + stripeH, W, stripeH * 0.55);
       }
       lctx.globalCompositeOperation = 'source-over';
       /* Crisp white inner edge so the stripes read as chrome. */
       lctx.globalCompositeOperation = 'source-atop';
       lctx.lineWidth = Math.max(1.5, size * 0.012);
-      lctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      lctx.strokeStyle = 'rgba(255,255,255,0.30)';
       drawSpacedText.call(null, lctx, caption.title, W / 2, y, spacing);
       ctx.drawImage(layer, 0, 0);
     } else {
