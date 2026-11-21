@@ -57,9 +57,9 @@
     ctx.textBaseline = 'alphabetic';
     ctx.lineJoin = 'round';
     var grad = ctx.createLinearGradient(0, y - size, 0, y + size * 0.12);
-    grad.addColorStop(0, '#ffe95e'); grad.addColorStop(0.35, '#ffb03d');
-    grad.addColorStop(0.62, '#ff5e62'); grad.addColorStop(0.85, '#e75480');
-    grad.addColorStop(1, '#8e44ad');
+    grad.addColorStop(0, '#ffc93d'); grad.addColorStop(0.3, '#ff8c1a');
+    grad.addColorStop(0.6, '#ff4d6d'); grad.addColorStop(0.85, '#e75480');
+    grad.addColorStop(1, '#9b30ff');
     var outline = Math.max(3, size * 0.085);
     var shadowOff = Math.max(4, size * 0.055);
 
@@ -92,9 +92,9 @@
       layer.width = W; layer.height = H;
       var lctx = layer.getContext('2d');
       var lgrad = lctx.createLinearGradient(0, y - size, 0, y + size * 0.12);
-      lgrad.addColorStop(0, '#ffe95e'); lgrad.addColorStop(0.35, '#ffb03d');
-      lgrad.addColorStop(0.62, '#ff5e62'); lgrad.addColorStop(0.85, '#e75480');
-      lgrad.addColorStop(1, '#8e44ad');
+      lgrad.addColorStop(0, '#ffc93d'); lgrad.addColorStop(0.3, '#ff8c1a');
+      lgrad.addColorStop(0.6, '#ff4d6d'); lgrad.addColorStop(0.85, '#e75480');
+      lgrad.addColorStop(1, '#9b30ff');
       lctx.font = font; lctx.textBaseline = 'alphabetic'; lctx.lineJoin = 'round';
       lctx.lineWidth = outline; lctx.strokeStyle = '#160412'; lctx.fillStyle = lgrad;
       lctx.shadowColor = 'rgba(20,2,12,0.85)'; lctx.shadowOffsetX = shadowOff; lctx.shadowOffsetY = shadowOff;
