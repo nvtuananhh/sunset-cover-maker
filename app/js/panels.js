@@ -1,162 +1,136 @@
-// panels.js — the 7 layout templates, per-panel crop/position, and the
-// face-aware focus point. Layout rects are fractions of the canvas, so one
-// layout works at every export size. No wall-clock or randomness here.
+/* panels.js — the 8 layout templates, per-panel crop / position /
+   focus point, and the cover-fit draw that anchors on the focus so
+   faces are never cut. */
 (function () {
   'use strict';
+  var SCM = window.SCM = window.SCM || {};
 
-  var DEFAULT_ROLES = ['THE CAPTAIN', 'THE NAVIGATOR', 'THE BOSS', 'THE DRIVER', 'THE LOOKOUT', 'THE FIXER'];
+  SCM.DEFAULT_ROLES = ['THE CAPTAIN', 'THE NAVIGATOR', 'THE BOSS', 'THE DRIVER', 'THE LOOKOUT', 'THE FIXER', 'THE ARTIST'];
+  SCM.DEFAULT_CALLOUTS = [
+    'Downtown Vice — 6 PM', 'The Boss runs the coast', 'Getaway driver',
+    'Lookout on the rooftop', 'Marina at dusk', 'The fixer knows a guy', 'Sunset Strip'
+  ];
 
-  // Each layout: name, blurb, and panel rects {x, y, w, h} in 0..1 fractions.
-  // Rect order is the panel order; slot 0 is the hero wherever a hero exists.
-  var LAYOUTS = {
-    vice: {
-      name: 'Vice Poster',
-      blurb: '5-panel · pop-out hero',
-      rects: [
-        { x: 0.020, y: 0.105, w: 0.295, h: 0.335 }, // top-left
-        { x: 0.685, y: 0.105, w: 0.295, h: 0.335 }, // top-right
-        { x: 0.315, y: 0.060, w: 0.370, h: 0.520, hero: true }, // hero, centre
-        { x: 0.020, y: 0.560, w: 0.295, h: 0.335 }, // bottom-left
-        { x: 0.685, y: 0.560, w: 0.295, h: 0.335 }, // bottom-right
-      ],
-    },
-    hero2: {
-      name: 'Hero + 2',
-      blurb: 'Big hero, two stacked',
-      rects: [
-        { x: 0.020, y: 0.085, w: 0.575, h: 0.810, hero: true },
-        { x: 0.615, y: 0.085, w: 0.365, h: 0.395 },
-        { x: 0.615, y: 0.500, w: 0.365, h: 0.395 },
-      ],
-    },
-    mosaic4: {
-      name: '4-Panel Mosaic',
-      blurb: 'Even 2 × 2 grid',
-      rects: [
-        { x: 0.020, y: 0.085, w: 0.478, h: 0.405 },
-        { x: 0.502, y: 0.085, w: 0.478, h: 0.405 },
-        { x: 0.020, y: 0.494, w: 0.478, h: 0.401 },
-        { x: 0.502, y: 0.494, w: 0.478, h: 0.401 },
-      ],
-    },
-    fullbleed: {
-      name: 'Full-Bleed Single',
-      blurb: 'One photo, caption bar',
-      rects: [{ x: 0.000, y: 0.000, w: 1.000, h: 1.000, hero: true }],
-    },
-    grid6: {
-      name: 'Cast Grid',
-      blurb: '6-panel 3 × 2',
-      rects: [
-        { x: 0.020, y: 0.085, w: 0.316, h: 0.405 },
-        { x: 0.342, y: 0.085, w: 0.316, h: 0.405 },
-        { x: 0.664, y: 0.085, w: 0.316, h: 0.405 },
-        { x: 0.020, y: 0.494, w: 0.316, h: 0.401 },
-        { x: 0.342, y: 0.494, w: 0.316, h: 0.401 },
-        { x: 0.664, y: 0.494, w: 0.316, h: 0.401 },
-      ],
-    },
-    slanted: {
-      name: 'Slanted Panels',
-      blurb: 'Diagonal cuts',
-      slant: true,
-      rects: [
-        { x: 0.020, y: 0.085, w: 0.240, h: 0.810 },
-        { x: 0.262, y: 0.085, w: 0.240, h: 0.810 },
-        { x: 0.504, y: 0.085, w: 0.240, h: 0.810, hero: true },
-        { x: 0.746, y: 0.085, w: 0.234, h: 0.810 },
-      ],
-    },
-    popout: {
-      name: 'Pop-Out Hero',
-      blurb: 'Hero breaks the frame',
-      rects: [
-        { x: 0.020, y: 0.520, w: 0.300, h: 0.375 },
-        { x: 0.680, y: 0.520, w: 0.300, h: 0.375 },
-        { x: 0.285, y: 0.040, w: 0.430, h: 0.620, hero: true },
-      ],
-    },
-  };
+  /* Rects are normalised (0..1) inside the poster area; hero panels
+     carry pop: true and are drawn breaking the frame into the title band. */
+  SCM.LAYOUTS = [
+    { id: 'vice', name: 'Vice Poster', panels: [
+      { x: 0.330, y: 0.085, w: 0.340, h: 0.700, hero: true },
+      { x: 0.015, y: 0.085, w: 0.300, h: 0.315 },
+      { x: 0.685, y: 0.085, w: 0.300, h: 0.315 },
+      { x: 0.015, y: 0.420, w: 0.300, h: 0.300 },
+      { x: 0.685, y: 0.420, w: 0.300, h: 0.300 }
+    ]},
+    { id: 'hero2', name: 'Hero + 2', panels: [
+      { x: 0.015, y: 0.085, w: 0.540, h: 0.700, hero: true },
+      { x: 0.575, y: 0.085, w: 0.410, h: 0.315 },
+      { x: 0.575, y: 0.420, w: 0.410, h: 0.300 }
+    ]},
+    { id: 'mosaic4', name: '4-Panel Mosaic', panels: [
+      { x: 0.015, y: 0.085, w: 0.478, h: 0.315 },
+      { x: 0.507, y: 0.085, w: 0.478, h: 0.315 },
+      { x: 0.015, y: 0.420, w: 0.478, h: 0.300 },
+      { x: 0.507, y: 0.420, w: 0.478, h: 0.300 }
+    ]},
+    { id: 'fullbleed', name: 'Full-Bleed', panels: [
+      { x: 0.015, y: 0.085, w: 0.970, h: 0.635, hero: true }
+    ]},
+    { id: 'cast6', name: '6-Panel Cast', panels: [
+      { x: 0.015, y: 0.085, w: 0.315, h: 0.315 },
+      { x: 0.343, y: 0.085, w: 0.315, h: 0.315 },
+      { x: 0.670, y: 0.085, w: 0.315, h: 0.315 },
+      { x: 0.015, y: 0.420, w: 0.315, h: 0.300 },
+      { x: 0.343, y: 0.420, w: 0.315, h: 0.300 },
+      { x: 0.670, y: 0.420, w: 0.315, h: 0.300 }
+    ]},
+    { id: 'slanted', name: 'Slanted Panels', panels: [
+      { x: 0.015, y: 0.085, w: 0.320, h: 0.635, slant: 0.05 },
+      { x: 0.300, y: 0.085, w: 0.320, h: 0.635, slant: 0.05, hero: true },
+      { x: 0.585, y: 0.085, w: 0.400, h: 0.635, slant: 0.05 }
+    ]},
+    { id: 'popout', name: 'Pop-Out Hero', panels: [
+      { x: 0.275, y: 0.060, w: 0.450, h: 0.760, hero: true },
+      { x: 0.015, y: 0.085, w: 0.240, h: 0.315 },
+      { x: 0.745, y: 0.085, w: 0.240, h: 0.315 },
+      { x: 0.015, y: 0.420, w: 0.240, h: 0.300 },
+      { x: 0.745, y: 0.420, w: 0.240, h: 0.300 }
+    ]},
+    { id: 'epic7', name: 'Seven-Panel Epic', panels: [
+      { x: 0.360, y: 0.060, w: 0.280, h: 0.760, hero: true },
+      { x: 0.015, y: 0.085, w: 0.165, h: 0.200 },
+      { x: 0.190, y: 0.085, w: 0.160, h: 0.200 },
+      { x: 0.650, y: 0.085, w: 0.160, h: 0.200 },
+      { x: 0.820, y: 0.085, w: 0.165, h: 0.200 },
+      { x: 0.015, y: 0.520, w: 0.165, h: 0.200 },
+      { x: 0.820, y: 0.520, w: 0.165, h: 0.200 }
+    ]}
+  ];
 
-  var LAYOUT_ORDER = ['vice', 'hero2', 'mosaic4', 'fullbleed', 'grid6', 'slanted', 'popout'];
+  function layoutById(id) {
+    for (var i = 0; i < SCM.LAYOUTS.length; i++) if (SCM.LAYOUTS[i].id === id) return SCM.LAYOUTS[i];
+    return SCM.LAYOUTS[0];
+  }
+  SCM.layoutById = layoutById;
 
-  function layoutRects(layoutId, W, H) {
-    var layout = LAYOUTS[layoutId] || LAYOUTS.vice;
-    return layout.rects.map(function (r) {
-      return { x: r.x * W, y: r.y * H, w: r.w * W, h: r.h * H, hero: !!r.hero };
+  function defaultPanels(layoutId) {
+    var layout = layoutById(layoutId);
+    var cast = SCM.DEFAULT_CAST;
+    return layout.panels.map(function (p, i) {
+      return {
+        photoId: null, photoFile: cast[i % cast.length],
+        focusX: 0.5, focusY: 0.32, zoom: 1, rotate: 0,
+        role: SCM.DEFAULT_ROLES[i % SCM.DEFAULT_ROLES.length],
+        callout: SCM.DEFAULT_CALLOUTS[i % SCM.DEFAULT_CALLOUTS.length],
+        hero: !!p.hero
+      };
     });
   }
+  SCM.defaultPanels = defaultPanels;
 
-  function panelCount(layoutId) {
-    return (LAYOUTS[layoutId] || LAYOUTS.vice).rects.length;
+  /* Pixel rects for a layout inside the poster area (after the frame). */
+  function panelRects(layoutId, area) {
+    var layout = layoutById(layoutId);
+    return layout.panels.map(function (p) {
+      return {
+        x: area.x + p.x * area.w, y: area.y + p.y * area.h,
+        w: p.w * area.w, h: p.h * area.h,
+        hero: !!p.hero, slant: p.slant || 0
+      };
+    });
   }
+  SCM.panelRects = panelRects;
 
-  function makePanel(photoSrc, index) {
-    return {
-      photo: photoSrc || '',
-      role: DEFAULT_ROLES[index % DEFAULT_ROLES.length],
-      focus: { x: 0.5, y: 0.35 },
-      zoom: 1,
-      rot: 0,
-      panX: 0,
-      panY: 0,
-    };
-  }
-
-  /**
-   * Draw one photo into a rect, cover-fit, anchored on the panel's focus
-   * point so a face set by clicking never gets cut. Zoom scales around the
-   * focus; rotation pivots on the panel centre. Deterministic: pure math
-   * on the stored focus/zoom/rotation, no randomness, no time.
-   */
-  function drawPhotoInto(ctx, img, rect, panel) {
-    var iw = img.naturalWidth || img.width;
-    var ih = img.naturalHeight || img.height;
-    var scale = Math.max(rect.w / iw, rect.h / ih) * panel.zoom;
-    var dw = iw * scale;
-    var dh = ih * scale;
-    // Focus point (fx, fy in photo fractions) lands on the panel centre.
-    var cx = rect.x + rect.w / 2 + panel.panX * rect.w;
-    var cy = rect.y + rect.h / 2 + panel.panY * rect.h;
-    var dx = cx - panel.focus.x * dw;
-    var dy = cy - panel.focus.y * dh;
-    // Clamp so the photo always covers the rect (no empty edges).
-    dx = Math.min(dx, rect.x);
-    dx = Math.max(dx, rect.x + rect.w - dw);
-    dy = Math.min(dy, rect.y);
-    dy = Math.max(dy, rect.y + rect.h - dh);
+  /* Cover-fit draw anchored on the focus point, with zoom + rotation.
+     The visible source window is centred on (focusX, focusY) and
+     clamped inside the image, so a face at the focus is never cut. */
+  function drawPanelImage(ctx, img, rect, panel) {
+    var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    if (!iw || !ih) return;
+    var zoom = panel.zoom || 1;
+    var scale = Math.max(rect.w / iw, rect.h / ih) * zoom;
+    var sw = rect.w / scale, sh = rect.h / scale;
+    var cx = (panel.focusX == null ? 0.5 : panel.focusX) * iw;
+    var cy = (panel.focusY == null ? 0.32 : panel.focusY) * ih;
+    var sx = Math.min(Math.max(cx - sw / 2, 0), iw - sw);
+    var sy = Math.min(Math.max(cy - sh / 2, 0), ih - sh);
     ctx.save();
     ctx.beginPath();
-    ctx.rect(rect.x, rect.y, rect.w, rect.h);
-    ctx.clip();
-    if (panel.rot !== 0) {
-      ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2);
-      ctx.rotate((panel.rot * Math.PI) / 180);
-      ctx.drawImage(img, dx - (rect.x + rect.w / 2), dy - (rect.y + rect.h / 2), dw, dh);
+    if (rect.slant) {
+      var s = rect.slant * rect.w;
+      ctx.moveTo(rect.x + s, rect.y); ctx.lineTo(rect.x + rect.w, rect.y);
+      ctx.lineTo(rect.x + rect.w - s, rect.y + rect.h); ctx.lineTo(rect.x, rect.y + rect.h);
     } else {
-      ctx.drawImage(img, dx, dy, dw, dh);
+      ctx.rect(rect.x, rect.y, rect.w, rect.h);
+    }
+    ctx.clip();
+    if (panel.rotate) {
+      ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2);
+      ctx.rotate((panel.rotate * Math.PI) / 180);
+      ctx.drawImage(img, sx, sy, sw, sh, -rect.w / 2 - 4, -rect.h / 2 - 4, rect.w + 8, rect.h + 8);
+    } else {
+      ctx.drawImage(img, sx, sy, sw, sh, rect.x, rect.y, rect.w, rect.h);
     }
     ctx.restore();
   }
-
-  /** Which panel rect contains point (px, py) in canvas pixels, or -1. */
-  function panelAt(layoutId, W, H, px, py) {
-    var rects = layoutRects(layoutId, W, H);
-    for (var i = rects.length - 1; i >= 0; i--) {
-      var r = rects[i];
-      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return i;
-    }
-    return -1;
-  }
-
-  window.SunsetPanels = {
-    LAYOUTS: LAYOUTS,
-    LAYOUT_ORDER: LAYOUT_ORDER,
-    DEFAULT_ROLES: DEFAULT_ROLES,
-    layoutRects: layoutRects,
-    panelCount: panelCount,
-    makePanel: makePanel,
-    drawPhotoInto: drawPhotoInto,
-    panelAt: panelAt,
-  };
+  SCM.drawPanelImage = drawPanelImage;
 })();

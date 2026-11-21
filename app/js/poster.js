@@ -1,400 +1,216 @@
-// poster.js — the cover renderer and poster furniture: quote bar, role
-// tags, chrome title + script subtitle + tagline pill, billing block,
-// barcode, gold seal, VOL. 1 / SEASON ONE / status labels. One pure
-// function of (canvas, W, H, state, loaded images): same inputs, same
-// pixels, every run. No wall-clock, no randomness.
+/* poster.js — poster furniture + the full poster render:
+   warm outer frame, panels, quote bar, role tags, callouts, chrome
+   title, script subtitle, tagline pill, billing block, barcode,
+   gold starburst seal, VOL. 1 / season / status labels. */
 (function () {
   'use strict';
+  var SCM = window.SCM = window.SCM || {};
 
-  var Panels = window.SunsetPanels;
-  var Grades = window.SunsetGrades;
-  var Caption = window.SunsetCaption;
+  function frameWidth(W) { return Math.round(W * 0.016); }
 
-  function slantPath(ctx, r, W) {
-    // Parallelogram: top edge shifted right, bottom edge shifted left.
-    var s = r.w * 0.09;
-    ctx.beginPath();
-    ctx.moveTo(r.x + s, r.y);
-    ctx.lineTo(r.x + r.w, r.y);
-    ctx.lineTo(r.x + r.w - s, r.y + r.h);
-    ctx.lineTo(r.x, r.y + r.h);
-    ctx.closePath();
+  function drawFrame(ctx, W, H) {
+    var fw = frameWidth(W);
+    var g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, '#ffb03d'); g.addColorStop(0.5, '#ff7a18');
+    g.addColorStop(1, '#ff2d78');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#160412';
+    ctx.fillRect(fw * 0.45, fw * 0.45, W - fw * 0.9, H - fw * 0.9);
+    ctx.strokeStyle = 'rgba(255,201,61,0.9)';
+    ctx.lineWidth = Math.max(2, fw * 0.12);
+    ctx.strokeRect(fw * 0.85, fw * 0.85, W - fw * 1.7, H - fw * 1.7);
+    return { x: fw, y: fw, w: W - fw * 2, h: H - fw * 2 };
   }
 
-  function clipPanels(ctx, rects, slanted) {
-    ctx.beginPath();
-    rects.forEach(function (r) {
-      if (slanted) slantPath(ctx, r, 0);
-      else ctx.rect(r.x, r.y, r.w, r.h);
-    });
-    ctx.clip();
-  }
-
-  function drawBackground(ctx, W, H) {
-    var g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0.0, '#2a0f45');
-    g.addColorStop(0.35, '#7a1e6e');
-    g.addColorStop(0.55, '#ff7a1a');
-    g.addColorStop(0.75, '#3d1150');
-    g.addColorStop(1.0, '#160a24');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-    // Sun glow behind the hero.
-    var sun = ctx.createRadialGradient(W / 2, H * 0.42, 0, W / 2, H * 0.42, W * 0.42);
-    sun.addColorStop(0, 'rgba(255, 214, 92, 0.55)');
-    sun.addColorStop(0.5, 'rgba(255, 122, 26, 0.18)');
-    sun.addColorStop(1, 'rgba(255, 122, 26, 0)');
-    ctx.fillStyle = sun;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  // Role tag: a small ticket pinned to the TOP of its panel by default.
-  // Left panels align left, right panels align right, hero aligns left.
-  // `pos` is 'top' or 'bottom' — renderCover picks whichever side dodges
-  // the title, the tagline pill, and the status pill.
-  function drawRoleTag(ctx, rect, role, W, align, pos) {
-    if (!role) return;
-    var size = Math.max(11, W * 0.0155);
+  function drawQuoteBar(ctx, W, H, area, caption) {
+    var size = Math.round(30 * (W / 1920));
+    var y = area.y + area.h * 0.012;
     ctx.save();
-    ctx.font = '700 ' + size + 'px ' + Caption.TITLE_FAMILY;
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.0015) + 'px';
-    var tw = ctx.measureText(role).width + size * 1.5;
-    var th = size * 1.9;
-    var x = align === 'right'
-      ? rect.x + rect.w - tw - Math.max(4, W * 0.006)
-      : rect.x + Math.max(4, W * 0.006);
-    var y = pos === 'bottom'
-      ? rect.y + rect.h - th - Math.max(4, W * 0.006)
-      : rect.y + Math.max(4, W * 0.006);
-    ctx.fillStyle = 'rgba(12, 5, 20, 0.92)';
-    ctx.fillRect(x, y, tw, th);
-    ctx.strokeStyle = '#fff3e0';
-    ctx.lineWidth = Math.max(1, W * 0.0008);
-    ctx.strokeRect(x, y, tw, th);
-    ctx.fillStyle = '#fff3e0';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(role, x + size * 0.75, y + th / 2 + size * 0.05);
-    ctx.restore();
-  }
-
-  /** A tag's box at `pos` in `rect`, for the collision check. */
-  function tagBox(ctx, rect, role, W, align, pos) {
-    var size = Math.max(11, W * 0.0155);
-    ctx.save();
-    ctx.font = '700 ' + size + 'px ' + Caption.TITLE_FAMILY;
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.0015) + 'px';
-    var tw = ctx.measureText(role).width + size * 1.5;
-    ctx.restore();
-    var th = size * 1.9;
-    var x = align === 'right'
-      ? rect.x + rect.w - tw - Math.max(4, W * 0.006)
-      : rect.x + Math.max(4, W * 0.006);
-    var y = pos === 'bottom'
-      ? rect.y + rect.h - th - Math.max(4, W * 0.006)
-      : rect.y + Math.max(4, W * 0.006);
-    return { x: x, y: y, w: tw, h: th };
-  }
-
-  /** Top unless that side hits the title, tagline, or status pill; when
-   *  both sides hit something, take the side with the smaller overlap. */
-  function tagPlacement(ctx, rect, role, W, align, furniture) {
-    var blocked = [furniture.title, furniture.tagline, furniture.status];
-    var overlap = function (box) {
-      return blocked.reduce(function (n, b) {
-        var ox = Math.max(0, Math.min(box.x + box.w, b.x + b.w) - Math.max(box.x, b.x));
-        var oy = Math.max(0, Math.min(box.y + box.h, b.y + b.h) - Math.max(box.y, b.y));
-        return n + ox * oy;
-      }, 0);
-    };
-    var top = tagBox(ctx, rect, role, W, align, 'top');
-    var bottom = tagBox(ctx, rect, role, W, align, 'bottom');
-    return overlap(bottom) < overlap(top) ? 'bottom' : 'top';
-  }
-
-  function drawQuoteBar(ctx, W, H, state) {
-    if (!state.showQuote) return;
-    var size = Math.max(12, W * 0.017);
-    var y = H * 0.012;
+    ctx.font = '900 ' + size + 'px ' + SCM.TITLE_FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#ffc93d';
     var stars = '★★★★★';
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = size + 'px sans-serif';
-    ctx.fillStyle = '#ffc93c';
+    var qw = ctx.measureText('“' + caption.quote + '”').width;
     var sw = ctx.measureText(stars).width;
-    ctx.font = '700 ' + size + 'px ' + Caption.TITLE_FAMILY;
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.002) + 'px';
-    var qw = ctx.measureText('“' + state.quote + '”').width;
-    var srcSize = Math.max(10, size * 0.72);
-    ctx.font = '700 ' + srcSize + 'px ' + Caption.TITLE_FAMILY;
-    var srcW = ctx.measureText('— ' + state.quoteSource).width;
-    var total = sw + qw + srcW + size * 3.2;
+    var gap = size * 0.7;
+    var total = qw + sw + gap * 2;
     var x0 = (W - total) / 2;
-    ctx.fillStyle = 'rgba(12, 5, 20, 0.72)';
-    Caption.roundRect(ctx, x0 - size, y, total + size * 2, size * 2.1, size);
-    ctx.fill();
-    var cx = x0;
-    ctx.font = size + 'px sans-serif';
-    ctx.fillStyle = '#ffc93c';
-    ctx.textAlign = 'left';
-    ctx.fillText(stars, cx, y + size * 1.05);
-    cx += sw + size * 1.1;
-    ctx.font = '700 ' + size + 'px ' + Caption.TITLE_FAMILY;
-    ctx.fillStyle = '#fff3e0';
-    ctx.fillText('“' + state.quote + '”', cx, y + size * 1.05);
-    cx += qw + size * 1.1;
-    ctx.font = '700 ' + srcSize + 'px ' + Caption.TITLE_FAMILY;
-    ctx.fillStyle = '#ffc93c';
-    ctx.fillText('— ' + state.quoteSource, cx, y + size * 1.05);
+    ctx.fillStyle = '#fff3d6';
+    ctx.fillText('“' + caption.quote + '”', x0 + qw / 2, y);
+    ctx.fillStyle = '#ffc93d';
+    ctx.fillText(stars, x0 + qw + gap + sw / 2, y);
+    ctx.font = '700 ' + Math.round(size * 0.62) + 'px ' + SCM.UI_FONT;
+    ctx.fillStyle = '#ffb03d';
+    ctx.fillText('— ' + caption.quoteSource, W / 2, y + size * 1.15);
     ctx.restore();
+    return y + size * 1.9;
   }
 
-  function drawBilling(ctx, W, H, state) {
-    if (!state.showBilling) return;
-    var size = Math.max(10, W * 0.0135);
+  function drawRoleTag(ctx, rect, role, W) {
+    var size = Math.max(11, Math.round(rect.w * 0.085));
     ctx.save();
-    ctx.font = '700 ' + size + 'px ' + Caption.TITLE_FAMILY;
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.0018) + 'px';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(255, 243, 224, 0.92)';
-    var text = state.billing.toUpperCase();
-    var maxW = W * 0.86;
-    var line = text;
-    if (ctx.measureText(text).width > maxW) {
-      // Split on the middle '·' so two balanced lines result.
-      var parts = text.split('·');
-      var half = Math.ceil(parts.length / 2);
-      var a = parts.slice(0, half).join('·').trim();
-      var b = parts.slice(half).join('·').trim();
-      ctx.fillText(a, W / 2, H * 0.945);
-      ctx.fillText(b, W / 2, H * 0.945 + size * 1.6);
-    } else {
-      ctx.fillText(line, W / 2, H * 0.955);
-    }
-    ctx.restore();
-  }
-
-  function drawBarcode(ctx, W, H, state) {
-    if (!state.showBarcode) return;
-    var bw = W * 0.085;
-    var bh = H * 0.045;
-    var x = W - bw - W * 0.022;
-    var y = H - bh - H * 0.055;
-    ctx.save();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(x, y, bw, bh);
-    var code = (state.catalogue || 'SCM-2026-001').replace(/[^0-9A-Za-z]/g, '');
-    var px = x + bw * 0.06;
-    var barW = bw * 0.88 / Math.max(1, code.length * 3);
-    ctx.fillStyle = '#111111';
-    for (var i = 0; i < code.length; i++) {
-      var v = code.charCodeAt(i);
-      for (var b = 0; b < 3; b++) {
-        var w = barW * (0.6 + 0.4 * ((v >> (b * 2)) & 3) / 3);
-        if (((v >> b) & 1) === 1) ctx.fillRect(px, y + bh * 0.12, w, bh * 0.62);
-        px += barW;
-      }
-    }
-    ctx.fillStyle = '#111111';
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = '0px';
-    ctx.font = '700 ' + Math.max(8, W * 0.008) + 'px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(state.catalogue, x + bw / 2, y + bh * 0.92);
-    ctx.restore();
-  }
-
-  function drawSeal(ctx, W, H, state) {
-    if (!state.showSeal) return;
-    var cx = W * 0.065;
-    var cy = H * 0.918;
-    var r = W * 0.036;
-    ctx.save();
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = '0px';
-    ctx.translate(cx, cy);
+    ctx.font = '900 ' + size + 'px ' + SCM.TITLE_FONT;
+    var w = ctx.measureText(role).width + size * 1.5;
+    var h = size * 1.9;
+    var x = rect.x + Math.max(6, rect.w * 0.03);
+    var y = rect.y + rect.h - h - Math.max(6, rect.h * 0.03);
+    ctx.fillStyle = 'rgba(10,2,8,0.92)';
+    ctx.strokeStyle = '#ffc93d'; ctx.lineWidth = Math.max(1.5, size * 0.08);
     ctx.beginPath();
-    var points = 16;
-    for (var i = 0; i < points * 2; i++) {
-      var ang = (i * Math.PI) / points - Math.PI / 2;
-      var rad = i % 2 === 0 ? r : r * 0.78;
-      var px = Math.cos(ang) * rad;
-      var py = Math.sin(ang) * rad;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, 3); else ctx.rect(x, y, w, h);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffe9a8';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(role, x + size * 0.75, y + h / 2 + 1);
+    ctx.restore();
+  }
+
+  /* Annotation callout: small label + leader line into the panel. */
+  function drawCallout(ctx, rect, callout, W, flip) {
+    if (!callout) return;
+    var size = Math.max(11, Math.round(rect.w * 0.075));
+    ctx.save();
+    ctx.font = '700 ' + size + 'px ' + SCM.UI_FONT;
+    var w = ctx.measureText(callout).width + size * 1.6;
+    var h = size * 2.0;
+    var lx = flip ? rect.x + rect.w - w : rect.x;
+    var ly = rect.y + Math.max(4, rect.h * 0.02);
+    var px = rect.x + rect.w * (flip ? 0.72 : 0.28);
+    var py = rect.y + rect.h * 0.42;
+    ctx.strokeStyle = 'rgba(255,201,61,0.95)';
+    ctx.lineWidth = Math.max(1.5, size * 0.09);
+    ctx.beginPath();
+    ctx.moveTo(lx + (flip ? w - size : size), ly + h);
+    ctx.lineTo(px, py);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(px, py, Math.max(3, size * 0.22), 0, 6.2832);
+    ctx.fillStyle = '#ffc93d'; ctx.fill();
+    ctx.fillStyle = 'rgba(22,4,18,0.92)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(lx, ly, w, h, h / 2); else ctx.rect(lx, ly, w, h);
+    ctx.fill();
+    ctx.fillStyle = '#ffe9a8';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(callout, lx + size * 0.8, ly + h / 2 + 1);
+    ctx.restore();
+  }
+
+  function drawBarcode(ctx, W, H, area, caption) {
+    var bw = Math.round(W * 0.085), bh = Math.round(H * 0.042);
+    var x = area.x + area.w - bw - Math.round(W * 0.012);
+    var y = area.y + area.h - bh - Math.round(H * 0.012);
+    ctx.save();
+    ctx.fillStyle = '#fff3d6';
+    ctx.fillRect(x - 6, y - 6, bw + 12, bh + 22);
+    var rnd = SCM.seededRandom(777);
+    var cx = x;
+    while (cx < x + bw) {
+      var bar = 1 + Math.floor(rnd() * 4) * 2;
+      ctx.fillStyle = '#160412';
+      ctx.fillRect(cx, y, Math.min(bar, x + bw - cx), bh);
+      cx += bar + 1 + Math.floor(rnd() * 4);
+    }
+    ctx.fillStyle = '#160412';
+    ctx.font = '700 ' + Math.round(bh * 0.42) + 'px ' + SCM.UI_FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText('8 90211 060621', x + bw / 2, y + bh + 2);
+    ctx.restore();
+  }
+
+  function drawSeal(ctx, W, H, area) {
+    var r = Math.round(Math.min(W, H) * 0.052);
+    var cx = area.x + r + Math.round(W * 0.012);
+    var cy = area.y + area.h - r - Math.round(H * 0.012);
+    ctx.save();
+    ctx.translate(cx, cy);
+    var spikes = 14;
+    ctx.beginPath();
+    for (var i = 0; i < spikes * 2; i++) {
+      var ang = (i * Math.PI) / spikes - Math.PI / 2;
+      var rr = i % 2 === 0 ? r : r * 0.78;
+      var px = Math.cos(ang) * rr, py = Math.sin(ang) * rr;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = '#ffc93c';
-    ctx.fill();
-    ctx.strokeStyle = '#8a5a00';
-    ctx.lineWidth = Math.max(1.5, W * 0.0012);
-    ctx.stroke();
-    ctx.fillStyle = '#160a24';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    var fs = Math.max(8, r * 0.30);
-    ctx.font = '900 ' + fs + 'px ' + Caption.TITLE_FAMILY;
-    ctx.fillText('ORIGINAL', 0, -fs * 0.55);
-    ctx.fillText('COVER ART', 0, fs * 0.55);
+    var g = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
+    g.addColorStop(0, '#ffe95e'); g.addColorStop(1, '#e8a100');
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = '#7a5200'; ctx.lineWidth = Math.max(2, r * 0.06); ctx.stroke();
+    ctx.fillStyle = '#4a2c00';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '900 ' + Math.round(r * 0.30) + 'px ' + SCM.TITLE_FONT;
+    ctx.fillText('ORIGINAL', 0, -r * 0.22);
+    ctx.fillText('COVER ART', 0, r * 0.12);
+    ctx.font = '900 ' + Math.round(r * 0.42) + 'px ' + SCM.UI_FONT;
+    ctx.fillText('★', 0, r * 0.52);
     ctx.restore();
   }
 
-  function drawLabels(ctx, W, H, state) {
-    if (!state.showLabels) return;
-    var size = Math.max(11, W * 0.016);
+  function drawBilling(ctx, W, H, area, caption) {
+    var size = Math.round(21 * (W / 1920));
     ctx.save();
-    ctx.font = '900 ' + size + 'px ' + Caption.TITLE_FAMILY;
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.002) + 'px';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#fff3e0';
+    ctx.font = '700 ' + size + 'px ' + SCM.UI_FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillStyle = '#ffe9c9';
+    var y = area.y + area.h - Math.round(H * 0.014);
+    ctx.fillText(caption.billing, W / 2, y);
+    ctx.font = '900 ' + Math.round(size * 1.05) + 'px ' + SCM.TITLE_FONT;
+    ctx.fillStyle = '#ffc93d';
+    var left = caption.volume + '  ·  ' + caption.season;
+    var right = caption.status;
     ctx.textAlign = 'left';
-    ctx.fillText('VOL. 1', W * 0.022, H * 0.045);
+    ctx.fillText(left, area.x + Math.round(W * 0.012), y - size * 1.7);
     ctx.textAlign = 'right';
-    ctx.fillText('SEASON ONE', W * 0.978, H * 0.045);
-    // Status pill, bottom centre in the gap below the panels, above billing.
-    var status = state.status || 'COMING SOON';
-    var sw = ctx.measureText(status).width + size * 2.2;
-    var sh = size * 2.0;
-    var x = (W - sw) / 2;
-    var y = H * 0.925 - sh;
-    ctx.fillStyle = state.status === 'NOW SHOWING' ? '#ff2e88' : '#ffc93c';
-    Caption.roundRect(ctx, x, y, sw, sh, sh / 2);
-    ctx.fill();
-    ctx.fillStyle = '#160a24';
-    ctx.textAlign = 'center';
-    ctx.fillText(status, W / 2, y + sh / 2 + size * 0.05);
+    ctx.fillText(right, area.x + area.w - Math.round(W * 0.012), y - size * 1.7);
     ctx.restore();
   }
 
-  /**
-   * Render the whole cover onto `canvas` at exactly W x H.
-   * `images` maps photo src -> loaded HTMLImageElement. Panels whose photo
-   * is not loaded are painted as a warm gradient placeholder (never blank).
-   */
-  function renderCover(canvas, W, H, state, images) {
-    canvas.width = W;
-    canvas.height = H;
-    var ctx = canvas.getContext('2d');
-    var layout = Panels.LAYOUTS[state.layout] || Panels.LAYOUTS.vice;
-    var slanted = !!layout.slant;
-    var rects = Panels.layoutRects(state.layout, W, H);
-    var visible = Math.min(rects.length, state.panels.length);
-
-    drawBackground(ctx, W, H);
-
-    // Photos, each clipped to its panel, with the grade's photo filter.
-    ctx.save();
-    ctx.filter = Grades.photoFilter(state.grade);
-    for (var i = 0; i < visible; i++) {
-      var r = rects[i];
-      var panel = state.panels[i];
-      var img = images.get(panel.photo);
+  /* The full poster. state: { layout, grade, caption, panels, grain, halftone }.
+     images: map photoFile -> HTMLImageElement, loaded in fixed order. */
+  function drawPoster(ctx, W, H, state, images) {
+    var caption = state.caption;
+    var grade = SCM.gradeById(state.grade);
+    var area = drawFrame(ctx, W, H);
+    if (state.caption.showQuote) drawQuoteBar(ctx, W, H, area, caption);
+    var rects = SCM.panelRects(state.layout, area);
+    var gutter = Math.max(3, Math.round(W * 0.0035));
+    /* Non-hero panels first, hero last so it breaks the frame. */
+    var order = rects.map(function (r, i) { return i; });
+    order.sort(function (a, b) { return (rects[a].hero ? 1 : 0) - (rects[b].hero ? 1 : 0); });
+    order.forEach(function (idx) {
+      var rect = rects[idx];
+      var panel = state.panels[idx];
+      if (!panel) return;
+      var img = images[panel.photoFile] || images[panel.photoId] || null;
       ctx.save();
-      if (slanted) slantPath(ctx, r, W);
-      else ctx.beginPath(), ctx.rect(r.x, r.y, r.w, r.h);
-      ctx.clip();
-      if (img) {
-        Panels.drawPhotoInto(ctx, img, r, panel);
-      } else {
-        var g = ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h);
-        g.addColorStop(0, '#ff9a3d');
-        g.addColorStop(1, '#7a1e6e');
-        ctx.fillStyle = g;
-        ctx.fillRect(r.x, r.y, r.w, r.h);
+      if (rect.hero) {
+        ctx.shadowColor = 'rgba(0,0,0,0.65)';
+        ctx.shadowBlur = Math.round(W * 0.02);
+        ctx.shadowOffsetX = 0; ctx.shadowOffsetY = Math.round(H * 0.012);
       }
+      ctx.fillStyle = '#2a0a1a';
+      ctx.fillRect(rect.x - gutter, rect.y - gutter, rect.w + gutter * 2, rect.h + gutter * 2);
       ctx.restore();
-    }
-    ctx.restore();
-    ctx.filter = 'none';
-
-    // Grade overlays, halftone, grain, vignette — over the panels only.
-    ctx.save();
-    clipPanels(ctx, rects.slice(0, visible), slanted);
-    Grades.applyOverlays(ctx, W, H, state.grade);
-    if (state.halftone) Grades.applyHalftone(ctx, W, H);
-    ctx.restore();
-    if (state.grain) {
-      ctx.save();
-      clipPanels(ctx, rects.slice(0, visible), slanted);
-      Grades.applyGrain(ctx, W, H);
-      ctx.restore();
-    }
-    if (state.vignette) Grades.applyVignette(ctx, W, H);
-
-    // Panel frames + warm outer frame.
-    ctx.save();
-    ctx.strokeStyle = '#1c0b2e';
-    ctx.lineWidth = Math.max(2, W * 0.004);
-    rects.slice(0, visible).forEach(function (r) {
-      if (slanted) slantPath(ctx, r, W);
-      else ctx.beginPath(), ctx.rect(r.x, r.y, r.w, r.h);
-      ctx.stroke();
+      if (img) SCM.drawPanelImage(ctx, img, rect, panel);
+      else { ctx.fillStyle = '#3a1426'; ctx.fillRect(rect.x, rect.y, rect.w, rect.h); }
+      SCM.applyGradeWash(ctx, rect.x, rect.y, rect.w, rect.h, grade);
+      if (state.halftone) SCM.applyHalftone(ctx, rect.x, rect.y, rect.w, rect.h);
+      /* Thin dark gutter + warm inner edge. */
+      ctx.strokeStyle = 'rgba(10,2,8,0.9)'; ctx.lineWidth = gutter;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.strokeStyle = 'rgba(255,176,61,0.55)'; ctx.lineWidth = Math.max(1, gutter * 0.4);
+      ctx.strokeRect(rect.x + gutter, rect.y + gutter, rect.w - gutter * 2, rect.h - gutter * 2);
+      drawRoleTag(ctx, rect, panel.role, W);
+      drawCallout(ctx, rect, panel.callout, W, idx % 2 === 1);
     });
-    ctx.strokeStyle = '#ff9a3d';
-    ctx.lineWidth = Math.max(2, W * 0.0025);
-    ctx.strokeRect(W * 0.008, H * 0.008, W * 0.984, H * 0.984);
-    ctx.restore();
-
-    // Furniture boxes, measured now so role tags can dodge them.
-    var furniture = Caption.measureFurniture(ctx, W, H, state);
-
-    // Pop-out hero: redrawn expanded, with a drop shadow, over the frame.
-    var heroIdx = -1;
-    for (var h = 0; h < visible; h++) if (rects[h].hero) heroIdx = h;
-    if (heroIdx >= 0 && state.layout !== 'fullbleed') {
-      var hr = rects[heroIdx];
-      var hp = state.panels[heroIdx];
-      var himg = images.get(hp.photo);
-      var ex = hr.x - hr.w * 0.035;
-      var ey = hr.y - hr.h * 0.02;
-      var ew = hr.w * 1.07;
-      var eh = hr.h * 1.075;
-      ctx.save();
-      ctx.shadowColor = 'rgba(10, 3, 18, 0.75)';
-      ctx.shadowBlur = W * 0.018;
-      ctx.shadowOffsetY = H * 0.012;
-      ctx.fillStyle = '#1c0b2e';
-      ctx.fillRect(ex, ey, ew, eh);
-      ctx.restore();
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(ex, ey, ew, eh);
-      ctx.clip();
-      if (himg) {
-        var expanded = { x: ex, y: ey, w: ew, h: eh, hero: true };
-        Panels.drawPhotoInto(ctx, himg, expanded, hp);
-      }
-      ctx.restore();
-      ctx.save();
-      ctx.strokeStyle = '#fff3e0';
-      ctx.lineWidth = Math.max(2, W * 0.003);
-      ctx.strokeRect(ex, ey, ew, eh);
-      ctx.restore();
-      // The hero's role tag rides the expanded frame.
-      var heroAlign = 'left';
-      var heroPos = tagPlacement(ctx, { x: ex, y: ey, w: ew, h: eh }, hp.role, W, heroAlign, furniture);
-      drawRoleTag(ctx, { x: ex, y: ey, w: ew, h: eh }, hp.role, W, heroAlign, heroPos);
-    }
-
-    // Role tags on the other panels.
-    for (var t = 0; t < visible; t++) {
-      if (t === heroIdx && state.layout !== 'fullbleed') continue;
-      var align = (rects[t].x + rects[t].w / 2) <= W / 2 ? 'left' : 'right';
-      var pos = tagPlacement(ctx, rects[t], state.panels[t].role, W, align, furniture);
-      drawRoleTag(ctx, rects[t], state.panels[t].role, W, align, pos);
-    }
-
-    // Poster furniture, in fixed order.
-    drawQuoteBar(ctx, W, H, state);
-    drawLabels(ctx, W, H, state);
-    var titleBox = Caption.drawTitle(ctx, W, H, state);
-    var subtitleBox = Caption.drawSubtitle(ctx, W, H, state, titleBox);
-    Caption.drawTagline(ctx, W, H, state, subtitleBox);
-    drawBilling(ctx, W, H, state);
-    drawBarcode(ctx, W, H, state);
-    drawSeal(ctx, W, H, state);
-    return ctx;
+    var titleY = SCM.drawChromeTitle(ctx, W, H, caption);
+    SCM.drawSubtitle(ctx, W, H, caption, titleY);
+    var pillY = titleY + Math.round(44 * (W / 1920)) * 1.9;
+    SCM.drawTaglinePill(ctx, W, H, caption, pillY);
+    drawBilling(ctx, W, H, area, caption);
+    if (state.caption.showBarcode) drawBarcode(ctx, W, H, area, caption);
+    if (state.caption.showSeal) drawSeal(ctx, W, H, area);
+    SCM.applyPosterGrade(ctx, W, H, grade, { grain: state.grain !== false, halftone: state.halftone });
   }
-
-  window.SunsetPoster = { renderCover: renderCover };
+  SCM.drawPoster = drawPoster;
 })();

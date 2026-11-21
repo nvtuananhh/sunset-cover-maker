@@ -1,47 +1,68 @@
-// photos.js — photo loading, caching, and uploads (local only, FileReader).
-// No network: every photo is a file under app/ or a data: URI from the
-// user's own machine. No wall-clock or randomness in this file.
+/* photos.js — user photo uploads (FileReader, local only) + the photo store.
+   Photos are read on the user's machine and never uploaded anywhere. */
 (function () {
   'use strict';
+  var SCM = window.SCM = window.SCM || {};
 
-  var cache = new Map();
+  /* Every photo the app can place: { id, name, src, img, uploaded }.
+     `img` is filled lazily by loadPhoto so the preview never blocks. */
+  SCM.photos = [];
+  SCM.selectedPhotoId = null;
 
-  /** Load an image by URL or data: URI; cached, so repeat renders reuse it. */
-  function loadImage(src) {
-    if (cache.has(src)) return cache.get(src);
-    var p = new Promise(function (resolve, reject) {
+  function loadPhoto(photo) {
+    if (photo.img) return Promise.resolve(photo.img);
+    return new Promise(function (resolve, reject) {
       var img = new Image();
-      img.onload = function () { resolve(img); };
-      img.onerror = function () { reject(new Error('cannot load photo: ' + src.slice(0, 80))); };
-      img.src = src;
+      img.onload = function () { photo.img = img; resolve(img); };
+      img.onerror = function () { reject(new Error('could not load photo ' + photo.name)); };
+      img.src = photo.src;
     });
-    cache.set(src, p);
-    return p;
   }
+  SCM.loadPhoto = loadPhoto;
 
-  /** Load every photo the current state references, in fixed order. */
-  function loadAllPhotos(state) {
-    var srcs = [];
-    var seen = new Set();
-    state.panels.forEach(function (panel) {
-      if (panel.photo && !seen.has(panel.photo)) { seen.add(panel.photo); srcs.push(panel.photo); }
-    });
-    return Promise.all(srcs.map(loadImage)).then(function () { return true; });
+  function loadAllPhotos() {
+    return Promise.all(SCM.photos.map(loadPhoto));
   }
+  SCM.loadAllPhotos = loadAllPhotos;
 
-  /** Read user-picked files as data: URIs, in the order the picker gave them. */
-  function readUploads(fileList) {
+  function addPhoto(name, src, uploaded) {
+    var photo = { id: 'p' + SCM.photos.length + '-' + name.replace(/[^a-z0-9]+/gi, ''), name: name, src: src, img: null, uploaded: !!uploaded };
+    SCM.photos.push(photo);
+    return photo;
+  }
+  SCM.addPhoto = addPhoto;
+
+  function photoById(id) {
+    for (var i = 0; i < SCM.photos.length; i++) if (SCM.photos[i].id === id) return SCM.photos[i];
+    return null;
+  }
+  SCM.photoById = photoById;
+
+  /* Read user files with FileReader; each becomes a data: URI photo. */
+  function handleUploadFiles(fileList) {
     var files = Array.prototype.slice.call(fileList || []);
-    var images = files.filter(function (f) { return f.type.indexOf('image/') === 0; });
-    return Promise.all(images.map(function (file) {
-      return new Promise(function (resolve, reject) {
-        var reader = new FileReader();
-        reader.onload = function () { resolve({ id: 'up-' + file.name, src: String(reader.result), label: file.name.replace(/\.[^.]+$/, '').slice(0, 20) || 'Upload' }); };
-        reader.onerror = function () { reject(new Error('cannot read ' + file.name)); };
-        reader.readAsDataURL(file);
+    files = files.filter(function (f) { return f.type && f.type.indexOf('image/') === 0; });
+    if (!files.length) return Promise.resolve([]);
+    var added = [];
+    var chain = Promise.resolve();
+    files.forEach(function (file) {
+      chain = chain.then(function () {
+        return new Promise(function (resolve) {
+          var reader = new FileReader();
+          reader.onload = function () {
+            var photo = addPhoto(file.name, String(reader.result), true);
+            added.push(photo);
+            resolve();
+          };
+          reader.onerror = function () { resolve(); };
+          reader.readAsDataURL(file);
+        });
       });
-    }));
+    });
+    return chain.then(function () {
+      if (added.length) SCM.selectedPhotoId = added[0].id;
+      return added;
+    });
   }
-
-  window.SunsetPhotos = { loadImage: loadImage, loadAllPhotos: loadAllPhotos, readUploads: readUploads };
+  SCM.handleUploadFiles = handleUploadFiles;
 })();

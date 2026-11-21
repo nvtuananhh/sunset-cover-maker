@@ -8,157 +8,83 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand">
-    <span class="brand-mark">SC</span>
-    <div>
-      <h1>Sunset Cover Maker</h1>
-      <p>Turn your photos into a Vice City sunset poster</p>
-    </div>
-  </div>
-  <ol class="steps">
-    <li><b>1</b> Upload photos</li>
-    <li><b>2</b> Arrange + caption</li>
-    <li><b>3</b> Export PNG</li>
-  </ol>
+  <div class="brand"><span class="brand-mark">☀</span> SUNSET COVER MAKER</div>
+  <div class="steps"><span class="step on" id="step1">1 Upload</span><span class="step" id="step2">2 Arrange + caption</span><span class="step" id="step3">3 Export</span></div>
+  <div class="top-meta" id="topMeta">1920 × 1080 · Vice Poster · Vice Sunset</div>
 </header>
-
 <main class="layout">
-  <aside class="col col-left">
+  <aside class="col left">
     <section class="panel-box">
       <h2>Photos</h2>
-      <p class="hint">Pick a sample, or upload your own. Photos stay on your machine.</p>
-      <div id="photoGrid" class="photo-grid"></div>
-      <label class="upload-btn" for="uploadInput">+ Upload photos</label>
-      <input id="uploadInput" type="file" accept="image/*" multiple hidden>
-      <div class="row">
-        <button id="fillAllBtn" type="button">Fill all panels</button>
-        <button id="shuffleBtn" type="button">Shuffle cast</button>
-      </div>
+      <label class="upload-btn">+ Upload photos<input type="file" id="uploadInput" accept="image/*" multiple hidden></label>
+      <div class="thumb-grid" id="photoThumbs"></div>
+      <p class="hint">Click a sample or an upload, then click a panel below to place it. Photos stay on your machine.</p>
     </section>
-
     <section class="panel-box">
       <h2>Layout</h2>
-      <div id="templateList" class="choice-list"></div>
+      <div class="btn-grid" id="layoutBtns"></div>
     </section>
-
     <section class="panel-box">
-      <h2>Colour grade</h2>
-      <div id="gradeList" class="choice-list"></div>
-      <label class="check"><input id="toggleGrain" type="checkbox" checked> Film grain</label>
-      <label class="check"><input id="toggleHalftone" type="checkbox"> Halftone dots</label>
-      <label class="check"><input id="toggleVignette" type="checkbox" checked> Vignette</label>
+      <h2>Grade</h2>
+      <div class="btn-grid" id="gradeBtns"></div>
+      <label class="check"><input type="checkbox" id="grainChk" checked> Film grain</label>
+      <label class="check"><input type="checkbox" id="halftoneChk"> Halftone dots</label>
+    </section>
+    <section class="panel-box">
+      <h2>Panel</h2>
+      <div id="panelEditor"></div>
     </section>
   </aside>
-
-  <section class="col col-center">
+  <section class="col centre">
     <div class="preview-wrap">
-      <canvas id="preview" width="960" height="540"></canvas>
-      <p id="previewInfo" class="preview-info">1920 × 1080 · Vice Poster · Vice Sunset</p>
+      <canvas id="preview" width="1920" height="1080"></canvas>
+      <div class="preview-hint" id="previewHint">Drag on the preview to pan the selected panel · Shift-click sets its focus point</div>
     </div>
-    <section class="panel-box panel-controls">
-      <h2>Selected panel: <span id="panelLabel">Hero — THE CAPTAIN</span></h2>
-      <p class="hint">Click the preview to pick a panel and set its face focus point. Drag to pan the photo.</p>
-      <div class="field-row">
-        <label>Photo
-          <select id="photoPicker"></select>
-        </label>
-        <label>Role tag
-          <input id="roleInput" type="text" value="THE CAPTAIN" maxlength="24">
-        </label>
-      </div>
-      <div class="field-row">
-        <label>Zoom <span id="zoomVal">100%</span>
-          <input id="zoomRange" type="range" min="100" max="220" value="100">
-        </label>
-        <label>Rotate <span id="rotVal">0°</span>
-          <input id="rotRange" type="range" min="-15" max="15" value="0">
-        </label>
-      </div>
-      <div class="row">
-        <button id="resetPanelBtn" type="button">Reset panel</button>
-        <button id="swapBtn" type="button">Swap with next panel</button>
-      </div>
-    </section>
+    <div class="size-row" id="sizeRow"></div>
   </section>
-
-  <aside class="col col-right">
+  <aside class="col right">
     <section class="panel-box">
       <h2>Caption</h2>
-      <label class="field">Title
-        <input id="titleInput" type="text" value="SUNSET" maxlength="18">
-      </label>
-      <label class="field">Title style
-        <select id="titleStyle">
-          <option value="chrome" selected>Chrome sunset</option>
-          <option value="striped">Striped retro</option>
+      <label>Title<input type="text" id="inTitle" value="SUNSET DRIVE" maxlength="24"></label>
+      <label>Title style
+        <select id="inTitleStyle">
+          <option value="chrome">Chrome</option>
+          <option value="striped" selected>Striped retro-chrome</option>
           <option value="neon">Neon outline</option>
         </select>
       </label>
-      <div class="field-row">
-        <label>Title size <span id="titleSizeVal">100%</span>
-          <input id="titleSizeRange" type="range" min="70" max="130" value="100">
-        </label>
-        <label>Title height <span id="titleYVal">62%</span>
-          <input id="titleYRange" type="range" min="45" max="78" value="62">
-        </label>
-      </div>
-      <label class="field">Letter spacing <span id="spacingVal">2%</span>
-        <input id="spacingRange" type="range" min="0" max="10" value="2">
-      </label>
-      <label class="field">Script subtitle
-        <input id="subtitleInput" type="text" value="five friends · one coast" maxlength="48">
-      </label>
-      <label class="field">Tagline pill
-        <input id="taglineInput" type="text" value="FIVE FRIENDS · ONE COAST · NO WAY BACK" maxlength="64">
-      </label>
-      <label class="field">Press quote
-        <input id="quoteInput" type="text" value="HOTTER THAN THE ASPHALT" maxlength="64">
-      </label>
-      <label class="field">Quote source
-        <input id="quoteSourceInput" type="text" value="THE PALM GAZETTE" maxlength="32">
-      </label>
-      <label class="field">Billing block
-        <input id="billingInput" type="text" value="A SUNSET PICTURES PRODUCTION · STARRING YOU · SHOT ON YOUR OWN CAMERA · GRADED BY HAND" maxlength="120">
-      </label>
+      <div class="slider-row"><span>Title size</span><input type="range" id="inTitleSize" min="60" max="170" value="128"><b id="titleSizeVal">128</b></div>
+      <div class="slider-row"><span>Letter spacing</span><input type="range" id="inSpacing" min="0" max="30" value="10"><b id="spacingVal">10</b></div>
+      <div class="slider-row"><span>Title height</span><input type="range" id="inTitleY" min="55" max="88" value="72"><b id="titleYVal">72%</b></div>
+      <label>Script subtitle<input type="text" id="inSubtitle" value="five friends · one coast · no way back" maxlength="60"></label>
+      <label>Tagline pill<input type="text" id="inTagline" value="FIVE FRIENDS · ONE COAST · NO WAY BACK" maxlength="60"></label>
+      <label>Press quote<input type="text" id="inQuote" value="HOTTER THAN THE ASPHALT" maxlength="60"></label>
+      <label>Quote source<input type="text" id="inQuoteSrc" value="THE PALM GAZETTE" maxlength="40"></label>
+      <label>Billing line<input type="text" id="inBilling" value="A SUNSET PICTURES PRODUCTION · STARRING YOU · SHOT ON YOUR OWN CAMERA · GRADED BY HAND" maxlength="110"></label>
     </section>
-
     <section class="panel-box">
       <h2>Poster furniture</h2>
-      <label class="check"><input id="toggleQuote" type="checkbox" checked> Press quote bar</label>
-      <label class="check"><input id="toggleBilling" type="checkbox" checked> Billing block</label>
-      <label class="check"><input id="toggleBarcode" type="checkbox" checked> Barcode + catalogue no.</label>
-      <label class="check"><input id="toggleSeal" type="checkbox" checked> Gold seal</label>
-      <label class="check"><input id="toggleLabels" type="checkbox" checked> VOL. 1 / SEASON ONE labels</label>
-      <label class="field">Status
-        <select id="statusSelect">
-          <option value="COMING SOON" selected>COMING SOON</option>
-          <option value="NOW SHOWING">NOW SHOWING</option>
-        </select>
+      <label class="check"><input type="checkbox" id="chkSeal" checked> Gold seal “ORIGINAL COVER ART”</label>
+      <label class="check"><input type="checkbox" id="chkBarcode" checked> Barcode + catalogue no.</label>
+      <label class="check"><input type="checkbox" id="chkQuote" checked> Press quote + 5 stars</label>
+      <label>Volume<input type="text" id="inVolume" value="VOL. 1" maxlength="12"></label>
+      <label>Season<input type="text" id="inSeason" value="SEASON ONE" maxlength="16"></label>
+      <label>Status
+        <select id="inStatus"><option>COMING SOON</option><option selected>NOW SHOWING</option><option>IN CINEMAS</option></select>
       </label>
     </section>
-
-    <section class="panel-box export-box">
+    <section class="panel-box">
       <h2>Export</h2>
-      <p class="hint">One click downloads the PNG. Same render as the preview, at full size.</p>
-      <div class="export-sizes">
-        <button class="size-btn active" type="button" data-w="1920" data-h="1080">1920 × 1080<br><span>wide</span></button>
-        <button class="size-btn" type="button" data-w="1080" data-h="1080">1080 × 1080<br><span>square</span></button>
-        <button class="size-btn" type="button" data-w="1080" data-h="1350">1080 × 1350<br><span>portrait</span></button>
-      </div>
-      <button id="exportBtn" type="button" class="export-btn">Download PNG</button>
-      <p id="exportInfo" class="export-info">Ready — 3 steps, about 10 seconds.</p>
+      <div class="export-btns" id="exportBtns"></div>
+      <p class="hint" id="exportHint">One click downloads the PNG. No upload, no watermark.</p>
+      <p class="hint" id="lastExport"></p>
     </section>
   </aside>
 </main>
-
-<footer class="foot">
-  <p>Sunset Cover Maker — original art, no game assets. Photos never leave your machine. Works offline.</p>
-</footer>
-
 <script src="js/photos.js"></script>
 <script src="js/samples.js"></script>
-<script src="js/panels.js"></script>
 <script src="js/grades.js"></script>
+<script src="js/panels.js"></script>
 <script src="js/caption.js"></script>
 <script src="js/poster.js"></script>
 <script src="js/export.js"></script>

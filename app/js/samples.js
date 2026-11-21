@@ -1,23 +1,27 @@
-// samples.js — the built-in sample photos, made in-session with an image
-// model (fictional people, never a real person, never game artwork).
-// Portrait-friendly: faces sit in the upper half so the chrome title can
-// overlap the lower half of the cover.
+/* samples.js — the six built-in sample photos, made with an image model
+   in this session (fictional people, never a real person, never game art).
+   Faces sit in the upper half so the chrome title can overlap the lower half. */
 (function () {
   'use strict';
+  var SCM = window.SCM = window.SCM || {};
 
-  var SAMPLES = [
-    { id: 'hero', src: 'samples/hero-woman.jpg', label: 'Hero — Beach', role: 'THE CAPTAIN' },
-    { id: 'boss', src: 'samples/boss-man.jpg', label: 'Boss — Skyline', role: 'THE BOSS' },
-    { id: 'driver', src: 'samples/driver-woman.jpg', label: 'Driver — Convertible', role: 'THE DRIVER' },
-    { id: 'rider', src: 'samples/rider-man.jpg', label: 'Lookout — Rider', role: 'THE LOOKOUT' },
-    { id: 'marina', src: 'samples/marina.jpg', label: 'Marina — Sunset', role: 'THE NAVIGATOR' },
-    { id: 'duo', src: 'samples/beach-duo.jpg', label: 'Duo — Beach', role: 'THE FIXER' },
+  SCM.SAMPLES = [
+    { file: 'samples/hero-woman.jpg', name: 'Hero — curly hair, beach gold', role: 'THE CAPTAIN' },
+    { file: 'samples/boss-man.jpg', name: 'Boss — silver hair, neon night', role: 'THE BOSS' },
+    { file: 'samples/driver-woman.jpg', name: 'Driver — bob, red convertible', role: 'THE DRIVER' },
+    { file: 'samples/rider-man.jpg', name: 'Rider — tank top, neon dusk', role: 'THE LOOKOUT' },
+    { file: 'samples/marina.jpg', name: 'Marina — yachts at sunset', role: 'THE NAVIGATOR' },
+    { file: 'samples/beach-duo.jpg', name: 'Beach duo — laughing couple', role: 'THE FIXER' }
   ];
 
-  /** Default cast: the six samples dealt across the six panel slots. */
-  function defaultCast() {
-    return SAMPLES.map(function (s) { return s.src; });
+  /* Register the samples as photos, in the fixed order above. */
+  function registerSamples() {
+    SCM.SAMPLES.forEach(function (s) {
+      SCM.addPhoto(s.file.split('/').pop(), s.file, false);
+    });
   }
+  SCM.registerSamples = registerSamples;
 
-  window.SunsetSamples = { SAMPLES: SAMPLES, defaultCast: defaultCast };
+  /* Default cast: which sample fills each panel of the default layout. */
+  SCM.DEFAULT_CAST = ['hero-woman.jpg', 'boss-man.jpg', 'driver-woman.jpg', 'rider-man.jpg', 'marina.jpg', 'beach-duo.jpg', 'hero-woman.jpg'];
 })();

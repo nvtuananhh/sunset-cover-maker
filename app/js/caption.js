@@ -1,222 +1,158 @@
-// caption.js — the big caption lettering: chrome title (gradient fill,
-// thick outline, offset shadow; Chrome / Striped retro / Neon outline),
-// slanted script subtitle, and the tagline pill. All type is drawn on the
-// canvas with system fonts, so export matches preview exactly.
+/* caption.js — caption state + the chrome-title / script-subtitle /
+   tagline rendering. All poster type is drawn on the canvas so the
+   export matches the preview exactly. */
 (function () {
   'use strict';
+  var SCM = window.SCM = window.SCM || {};
 
-  var TITLE_FAMILY = "'Noto Sans Condensed', 'Noto Sans', 'Arial Narrow', sans-serif";
-  var SCRIPT_FAMILY = "italic 700 Georgia, 'DejaVu Serif', 'Times New Roman', serif";
+  SCM.TITLE_FONT = '"Noto Sans Condensed Black", "Noto Sans Condensed", "Arial Narrow", sans-serif';
+  SCM.UI_FONT = '"Noto Sans", "Segoe UI", Arial, sans-serif';
+  SCM.SCRIPT_FONT = 'italic 700 ';
 
-  function fitSize(ctx, text, maxWidth, size, weight, family, spacingPx) {
-    var s = size;
-    ctx.save();
-    while (s > 12) {
-      ctx.font = weight + ' ' + s + 'px ' + family;
-      if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = spacingPx + 'px';
-      if (ctx.measureText(text).width <= maxWidth) break;
-      s = Math.floor(s * 0.94);
+  function defaultCaption() {
+    return {
+      title: 'SUNSET DRIVE',
+      titleStyle: 'striped',
+      titleSize: 128,
+      letterSpacing: 10,
+      titleY: 0.72,
+      subtitle: 'five friends · one coast · no way back',
+      tagline: 'FIVE FRIENDS · ONE COAST · NO WAY BACK',
+      quote: 'HOTTER THAN THE ASPHALT',
+      quoteSource: 'THE PALM GAZETTE',
+      billing: 'A SUNSET PICTURES PRODUCTION · STARRING YOU · SHOT ON YOUR OWN CAMERA · GRADED BY HAND',
+      volume: 'VOL. 1', season: 'SEASON ONE', status: 'NOW SHOWING',
+      showSeal: true, showBarcode: true, showQuote: true
+    };
+  }
+  SCM.defaultCaption = defaultCaption;
+
+  /* Letter-spaced text width, measured with the same font the draw uses. */
+  function spacedWidth(ctx, text, spacing) {
+    var w = 0;
+    for (var i = 0; i < text.length; i++) w += ctx.measureText(text[i]).width + spacing;
+    return w - spacing;
+  }
+
+  function drawSpacedText(ctx, text, cx, y, spacing) {
+    var w = spacedWidth(ctx, text, spacing);
+    var x = cx - w / 2;
+    for (var i = 0; i < text.length; i++) {
+      ctx.fillText(text[i], x, y);
+      ctx.strokeText(text[i], x, y);
+      x += ctx.measureText(text[i]).width + spacing;
     }
-    ctx.restore();
-    return s;
   }
 
-  function titleGradient(ctx, x0, y0, x1, y1) {
-    var g = ctx.createLinearGradient(x0, y0, x1, y1);
-    g.addColorStop(0.0, '#ffe95e');
-    g.addColorStop(0.28, '#ffb03a');
-    g.addColorStop(0.52, '#ff7a1a');
-    g.addColorStop(0.76, '#ff2e88');
-    g.addColorStop(1.0, '#b967ff');
-    return g;
-  }
-
-  /** Measure the title (size, width, top, baseline) without drawing it. */
-  function measureTitle(ctx, W, H, state) {
-    var text = (state.title || 'SUNSET').toUpperCase();
-    var maxWidth = W * 0.94;
-    var base = W * 0.155 * state.titleSize;
-    var spacing = W * state.letterSpacing;
-    var size = fitSize(ctx, text, maxWidth, base, '900', TITLE_FAMILY, spacing);
+  /* The huge chrome title: sunset-gradient fill, thick dark outline,
+     offset drop shadow. Striped retro-chrome adds horizontal stripes
+     clipped inside the letters; neon is a glowing pink outline. */
+  function drawChromeTitle(ctx, W, H, caption) {
+    var size = caption.titleSize * (W / 1920);
+    var spacing = caption.letterSpacing * (W / 1920);
+    var y = caption.titleY * H;
+    var font = '900 ' + size + 'px ' + SCM.TITLE_FONT;
     ctx.save();
-    ctx.font = '900 ' + size + 'px ' + TITLE_FAMILY;
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = spacing + 'px';
-    var width = ctx.measureText(text).width;
-    ctx.restore();
-    var baselineY = state.titleY * H;
-    return { text: text, size: size, width: width, top: baselineY - size, baselineY: baselineY, spacing: spacing };
-  }
-
-  /**
-   * Bounding boxes of the furniture that role tags must avoid: the title,
-   * the tagline pill, and the status pill. Pure measurement, no drawing.
-   */
-  function measureFurniture(ctx, W, H, state) {
-    var title = measureTitle(ctx, W, H, state);
-    var titleBox = { x: (W - title.width) / 2, y: title.top, w: title.width, h: title.size * 1.1 };
-    var subSize = Math.max(14, W * 0.032 * state.titleSize);
-    var subY = title.baselineY + subSize * 1.55;
-    var tagSize = Math.max(11, W * 0.0165);
-    ctx.save();
-    ctx.font = '700 ' + tagSize + 'px ' + TITLE_FAMILY;
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.004) + 'px';
-    var tagW = ctx.measureText((state.tagline || '').toUpperCase()).width + tagSize * 2.4;
-    ctx.restore();
-    var tagY = (subY + subSize * 0.9) + tagSize * 0.5;
-    var taglineBox = { x: (W - tagW) / 2, y: tagY, w: tagW, h: tagSize * 2.1 };
-    var statusSize = Math.max(11, W * 0.016);
-    ctx.save();
-    ctx.font = '900 ' + statusSize + 'px ' + TITLE_FAMILY;
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.002) + 'px';
-    var statusW = ctx.measureText(state.status || 'COMING SOON').width + statusSize * 2.2;
-    ctx.restore();
-    var statusBox = { x: (W - statusW) / 2, y: H * 0.925 - statusSize * 2.0, w: statusW, h: statusSize * 2.0 };
-    return { title: titleBox, tagline: taglineBox, status: statusBox };
-  }
-
-  /** Draw the huge title centred at (cx, baselineY). Returns its bounding box. */
-  function drawTitle(ctx, W, H, state) {
-    var text = (state.title || 'SUNSET').toUpperCase();
-    var cx = W / 2;
-    var m = measureTitle(ctx, W, H, state);
-    var size = m.size;
-    var spacing = m.spacing;
-    var baselineY = m.baselineY;
-    var top = m.top;
-    var style = state.titleStyle || 'chrome';
-    ctx.save();
-    ctx.textAlign = 'center';
+    ctx.font = font;
     ctx.textBaseline = 'alphabetic';
     ctx.lineJoin = 'round';
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = spacing + 'px';
-    ctx.font = '900 ' + size + 'px ' + TITLE_FAMILY;
+    var grad = ctx.createLinearGradient(0, y - size, 0, y + size * 0.12);
+    grad.addColorStop(0, '#ffe95e'); grad.addColorStop(0.35, '#ffb03d');
+    grad.addColorStop(0.62, '#ff5e62'); grad.addColorStop(0.85, '#e75480');
+    grad.addColorStop(1, '#8e44ad');
+    var outline = Math.max(3, size * 0.085);
+    var shadowOff = Math.max(4, size * 0.055);
 
-    if (style === 'neon') {
-      ctx.shadowColor = '#ff2e88';
-      ctx.shadowBlur = size * 0.22;
-      ctx.shadowOffsetY = 0;
-      ctx.strokeStyle = '#ff5db1';
-      ctx.lineWidth = Math.max(2, size * 0.028);
-      ctx.strokeText(text, cx, baselineY);
-      ctx.strokeText(text, cx, baselineY);
+    function strokeFill(fillStyle, lineWidth, strokeStyle) {
+      ctx.lineWidth = lineWidth;
+      ctx.strokeStyle = strokeStyle;
+      ctx.fillStyle = fillStyle;
+      ctx.shadowColor = 'rgba(20,2,12,0.85)';
       ctx.shadowBlur = 0;
-      ctx.fillStyle = '#1c0b2e';
-      ctx.fillText(text, cx, baselineY);
-    } else if (style === 'striped') {
-      // Offscreen so the stripes clip to the letterforms.
-      var off = document.createElement('canvas');
-      off.width = W;
-      off.height = H;
-      var o = off.getContext('2d');
-      o.textAlign = 'center';
-      o.textBaseline = 'alphabetic';
-      o.lineJoin = 'round';
-      if (typeof o.letterSpacing !== 'undefined') o.letterSpacing = spacing + 'px';
-      o.font = '900 ' + size + 'px ' + TITLE_FAMILY;
-      o.strokeStyle = '#1c0b2e';
-      o.lineWidth = Math.max(3, size * 0.06);
-      o.strokeText(text, cx, baselineY);
-      o.fillStyle = titleGradient(o, cx, top, cx, baselineY + size * 0.1);
-      o.fillText(text, cx, baselineY);
-      o.globalCompositeOperation = 'source-atop';
-      var stripeH = Math.max(3, size * 0.085);
-      o.fillStyle = 'rgba(28, 11, 46, 0.55)';
-      for (var y = top; y < baselineY + size * 0.1; y += stripeH * 2) {
-        o.fillRect(0, y, W, stripeH);
+      ctx.shadowOffsetX = shadowOff; ctx.shadowOffsetY = shadowOff;
+      drawSpacedText(ctx, caption.title, W / 2, y, spacing);
+      ctx.shadowColor = 'transparent'; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+    }
+
+    if (caption.titleStyle === 'neon') {
+      ctx.lineWidth = Math.max(2, size * 0.03);
+      ctx.strokeStyle = '#ff5da2';
+      ctx.shadowColor = '#ff2d78'; ctx.shadowBlur = size * 0.35;
+      ctx.fillStyle = 'rgba(255,240,250,0.92)';
+      drawSpacedText(ctx, caption.title, W / 2, y, spacing);
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = Math.max(1.5, size * 0.015);
+      ctx.strokeStyle = '#ffffff';
+      drawSpacedText(ctx, caption.title, W / 2, y, spacing);
+    } else if (caption.titleStyle === 'striped') {
+      /* Draw the letters to an offscreen layer, then stripe them. */
+      var layer = document.createElement('canvas');
+      layer.width = W; layer.height = H;
+      var lctx = layer.getContext('2d');
+      lctx.font = font; lctx.textBaseline = 'alphabetic'; lctx.lineJoin = 'round';
+      lctx.lineWidth = outline; lctx.strokeStyle = '#160412'; lctx.fillStyle = grad;
+      lctx.shadowColor = 'rgba(20,2,12,0.85)'; lctx.shadowOffsetX = shadowOff; lctx.shadowOffsetY = shadowOff;
+      drawSpacedText.call(null, lctx, caption.title, W / 2, y, spacing);
+      lctx.shadowColor = 'transparent'; lctx.shadowOffsetX = 0; lctx.shadowOffsetY = 0;
+      /* Horizontal retro stripes, clipped inside the letters. */
+      lctx.globalCompositeOperation = 'source-atop';
+      var stripeH = Math.max(4, size * 0.09);
+      for (var sy = y - size; sy < y + size * 0.12; sy += stripeH * 2) {
+        lctx.fillStyle = 'rgba(255,255,255,0.28)';
+        lctx.fillRect(0, sy, W, stripeH);
+        lctx.fillStyle = 'rgba(40,4,40,0.20)';
+        lctx.fillRect(0, sy + stripeH, W, stripeH * 0.55);
       }
-      ctx.shadowColor = 'rgba(20, 4, 30, 0.85)';
-      ctx.shadowBlur = size * 0.03;
-      ctx.shadowOffsetY = size * 0.05;
-      ctx.drawImage(off, 0, 0);
+      lctx.globalCompositeOperation = 'source-over';
+      /* Crisp white inner edge so the stripes read as chrome. */
+      lctx.globalCompositeOperation = 'source-atop';
+      lctx.lineWidth = Math.max(1.5, size * 0.012);
+      lctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      drawSpacedText.call(null, lctx, caption.title, W / 2, y, spacing);
+      ctx.drawImage(layer, 0, 0);
     } else {
-      // Chrome sunset.
-      ctx.shadowColor = 'rgba(20, 4, 30, 0.85)';
-      ctx.shadowBlur = size * 0.035;
-      ctx.shadowOffsetY = size * 0.055;
-      ctx.strokeStyle = '#1c0b2e';
-      ctx.lineWidth = Math.max(3, size * 0.06);
-      ctx.strokeText(text, cx, baselineY);
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetY = 0;
-      ctx.fillStyle = titleGradient(ctx, cx, top, cx, baselineY + size * 0.1);
-      ctx.fillText(text, cx, baselineY);
-      // Thin hot highlight along the top of the letters.
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
-      ctx.fillText(text, cx, baselineY - size * 0.012);
+      strokeFill(grad, outline, '#160412');
+      ctx.lineWidth = Math.max(1.5, size * 0.012);
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillStyle = grad;
+      drawSpacedText(ctx, caption.title, W / 2, y, spacing);
     }
     ctx.restore();
-    return { x: cx - m.width / 2, y: top, w: m.width, h: size * 1.15, size: size, baselineY: baselineY };
+    return y;
   }
+  SCM.drawChromeTitle = drawChromeTitle;
 
-  /** Slanted script subtitle in neon pink, just under the title. */
-  function drawSubtitle(ctx, W, H, state, titleBox) {
-    var text = state.subtitle || '';
-    if (!text) return null;
-    var size = Math.max(14, W * 0.032 * state.titleSize);
-    var y = titleBox.baselineY + size * 1.55;
+  /* Slanted script subtitle in neon pink under the title. */
+  function drawSubtitle(ctx, W, H, caption, titleY) {
+    var size = Math.round(44 * (W / 1920));
     ctx.save();
-    ctx.translate(W / 2, y);
-    ctx.rotate(-0.035);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.002) + 'px';
-    ctx.font = 'italic 700 ' + size + 'px Georgia, \'DejaVu Serif\', \'Times New Roman\', serif';
-    ctx.shadowColor = '#ff2e88';
-    ctx.shadowBlur = size * 0.5;
-    ctx.fillStyle = '#ff7ad9';
-    ctx.fillText(text, 0, 0);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#ffd7ef';
-    ctx.fillText(text, 0, -size * 0.02);
+    ctx.font = SCM.SCRIPT_FONT + size + 'px Georgia, "Times New Roman", serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#ff5da2';
+    ctx.shadowColor = '#ff2d78'; ctx.shadowBlur = size * 0.45;
+    ctx.fillText(caption.subtitle, W / 2, titleY + size * 0.28);
     ctx.restore();
-    return { y: y, size: size };
   }
+  SCM.drawSubtitle = drawSubtitle;
 
-  /** Tagline pill: dark ticket with a gold edge, centred. */
-  function drawTagline(ctx, W, H, state, subtitleBox) {
-    var text = (state.tagline || '').toUpperCase();
-    if (!text) return null;
-    var size = Math.max(11, W * 0.0165);
+  /* Pill tagline under the subtitle. */
+  function drawTaglinePill(ctx, W, H, caption, y) {
+    var size = Math.round(26 * (W / 1920));
     ctx.save();
-    ctx.font = '700 ' + size + 'px ' + TITLE_FAMILY;
-    if (typeof ctx.letterSpacing !== 'undefined') ctx.letterSpacing = (W * 0.004) + 'px';
-    var tw = ctx.measureText(text).width + size * 2.4;
-    var th = size * 2.1;
-    var y = (subtitleBox ? subtitleBox.y + subtitleBox.size * 0.9 : H * 0.78) + size * 0.5;
-    var x = (W - tw) / 2;
-    ctx.fillStyle = 'rgba(22, 10, 36, 0.88)';
-    ctx.strokeStyle = '#ffc93c';
-    ctx.lineWidth = Math.max(1.5, W * 0.0012);
-    roundRect(ctx, x, y, tw, th, th / 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = '#fff3e0';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, W / 2, y + th / 2 + size * 0.05);
-    ctx.restore();
-    return { y: y, h: th };
-  }
-
-  function roundRect(ctx, x, y, w, h, r) {
+    ctx.font = '800 ' + size + 'px ' + SCM.UI_FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var w = ctx.measureText(caption.tagline).width + size * 2.4;
+    var h = size * 2.1;
+    var x = (W - w) / 2;
+    ctx.fillStyle = 'rgba(22,4,18,0.88)';
+    ctx.strokeStyle = '#ffc93d'; ctx.lineWidth = Math.max(2, size * 0.08);
     ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, h / 2); else ctx.rect(x, y, w, h);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffe9a8';
+    ctx.fillText(caption.tagline, W / 2, y + h / 2 + 1);
+    ctx.restore();
+    return y + h;
   }
-
-  window.SunsetCaption = {
-    TITLE_FAMILY: TITLE_FAMILY,
-    SCRIPT_FAMILY: SCRIPT_FAMILY,
-    measureTitle: measureTitle,
-    measureFurniture: measureFurniture,
-    drawTitle: drawTitle,
-    drawSubtitle: drawSubtitle,
-    drawTagline: drawTagline,
-    roundRect: roundRect,
-  };
+  SCM.drawTaglinePill = drawTaglinePill;
 })();
